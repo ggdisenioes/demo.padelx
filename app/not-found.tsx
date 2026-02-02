@@ -1,29 +1,50 @@
-import Link from "next/link";
+// app/not-found.tsx
 
 export default function NotFound() {
   return (
-    <main className="min-h-[70vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6 shadow-lg">
-        <h1 className="text-2xl font-semibold text-white">Página no encontrada</h1>
-        <p className="mt-2 text-sm text-white/70">
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#0b0f16",
+        padding: "24px",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          background: "white",
+          borderRadius: 16,
+          padding: 28,
+          boxShadow: "0 20px 60px rgba(0,0,0,.35)",
+          borderTop: "4px solid #07fdbb",
+        }}
+      >
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: "#111827" }}>
+          Página no encontrada
+        </h1>
+        <p style={{ marginTop: 10, marginBottom: 18, color: "#4b5563", lineHeight: 1.45 }}>
           La URL que intentaste abrir no existe o fue movida.
         </p>
-
-        <div className="mt-6 flex gap-3">
-          <Link
-            href="/"
-            className="inline-flex items-center justify-center rounded-xl bg-[#07fdbb] px-4 py-2 text-sm font-semibold text-[#010e35] hover:opacity-90"
-          >
-            Ir al inicio
-          </Link>
-
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10"
-          >
-            Ir al panel
-          </Link>
-        </div>
+        <a
+          href="/"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "12px 16px",
+            borderRadius: 12,
+            background: "#111827",
+            color: "white",
+            fontWeight: 800,
+            textDecoration: "none",
+          }}
+        >
+          Volver al inicio
+        </a>
       </div>
     </main>
   );
