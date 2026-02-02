@@ -23,7 +23,7 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
 
           {/* Logo / Title */}
           <span className="text-sm font-semibold text-white">
-            Pádel Manager
+            Padel Manager
           </span>
         </div>
 

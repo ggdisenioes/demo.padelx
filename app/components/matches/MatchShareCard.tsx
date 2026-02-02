@@ -25,8 +25,8 @@ export default function MatchShareCard({ winnerTeam, loserTeam, score }: Props) 
     >
       <div style={{ textAlign: "center" }}>
         <img
-          src="/logo.png"
-          alt="Twinco Padel Manager"
+          src="/logo.svg"
+          alt="DEMO Padel Manager"
           style={{ height: 32, width: "auto", objectFit: "contain" }}
         />
         <div
@@ -34,7 +34,7 @@ export default function MatchShareCard({ winnerTeam, loserTeam, score }: Props) 
             marginTop: 8,
             fontSize: 12,
             letterSpacing: 2,
-            color: "#4ade80",
+            color: "#07fdbb",
           }}
         >
           PADEL MANAGER
@@ -44,7 +44,7 @@ export default function MatchShareCard({ winnerTeam, loserTeam, score }: Props) 
       <div style={{ textAlign: "center" }}>
         <div
           style={{
-            color: "#4ade80",
+            color: "#07fdbb",
             fontSize: 22,
             fontWeight: 700,
             marginBottom: 12,
@@ -61,7 +61,7 @@ export default function MatchShareCard({ winnerTeam, loserTeam, score }: Props) 
       </div>
 
       <div style={{ textAlign: "center", fontSize: 12, opacity: 0.7 }}>
-        twinco.padelx.es
+        demo.padelx.es
       </div>
     </div>
   );

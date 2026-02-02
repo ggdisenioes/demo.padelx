@@ -389,7 +389,7 @@ export default function EditTournament() {
             <div className="flex flex-col items-center gap-1">
               <img
                 src="/logo.svg"
-                alt="Twinco Padel Manager"
+                alt="DEMO Padel Manager"
                 className="h-8 w-auto object-contain"
               />
               <span className="text-xs tracking-widest text-green-400">
@@ -443,14 +443,14 @@ export default function EditTournament() {
 
                     const res = await fetch(dataUrl);
                     const blob = await res.blob();
-                    const file = new File([blob], "resultado-twinco.png", { type: "image/png" });
+                    const file = new File([blob], "resultado-demo.png", { type: "image/png" });
 
                     if (navigator.share) {
                       try {
                         await navigator.share({
                           files: [file],
                           title: "Resultado del partido",
-                          text: "Resultado Twinco Padel Manager",
+                          text: "Resultado DEMO Padel Manager",
                         });
                         toast.success("¡Imagen compartida!");
                         return;
@@ -461,7 +461,7 @@ export default function EditTournament() {
 
                     const a = document.createElement("a");
                     a.href = dataUrl;
-                    a.download = "resultado-twinco.png";
+                    a.download = "resultado-demo.png";
                     a.click();
                     toast.success("Imagen descargada");
                   } catch (err) {
@@ -497,7 +497,7 @@ export default function EditTournament() {
 
                     const a = document.createElement("a");
                     a.href = dataUrl;
-                    a.download = "resultado-twinco.png";
+                    a.download = "resultado-demo.png";
                     a.click();
                     toast.success("Imagen descargada");
                   } catch (err) {

@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Twinco Pádel Manager",
-  description: "Gestión de torneos y jugadores de pádel en tiempo real",
+  title: "DEMO Padel Manager",
+  description: "Plataforma DEMO para gestión de torneos y jugadores de pádel",
 };
 
 export default function RootLayout({

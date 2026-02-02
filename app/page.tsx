@@ -877,7 +877,7 @@ export default function DashboardPage() {
             </button>
 
             <div className="flex flex-col items-center gap-1">
-              <img src="/logo.svg" alt="Twinco Padel Manager" className="h-8 w-auto object-contain" />
+              <img src="/logo.svg" alt="DEMO Padel Manager" className="h-8 w-auto object-contain" />
               <span className="text-xs tracking-widest text-green-400">PADEL MANAGER</span>
             </div>
 
@@ -918,14 +918,14 @@ export default function DashboardPage() {
                     }
 
                     const { blob, url } = result;
-                    const file = new File([blob], "resultado-twinco.png", { type: "image/png" });
+                    const file = new File([blob], "resultado-demo.png", { type: "image/png" });
 
                     if (navigator.share) {
                       try {
                         await navigator.share({
                           files: [file],
                           title: "Resultado del partido",
-                          text: "Resultado Twinco Padel Manager",
+                          text: "Resultado DEMO Padel Manager",
                         });
                         toast.success("¡Imagen compartida!");
                         URL.revokeObjectURL(url);
@@ -942,7 +942,7 @@ export default function DashboardPage() {
                     // Fallback: descargar
                     const a = document.createElement("a");
                     a.href = url;
-                    a.download = "resultado-twinco.png";
+                    a.download = "resultado-demo.png";
                     a.click();
                     toast.success("Imagen descargada");
                     URL.revokeObjectURL(url);
@@ -974,7 +974,7 @@ export default function DashboardPage() {
                     const { url } = result;
                     const a = document.createElement("a");
                     a.href = url;
-                    a.download = "resultado-twinco.png";
+                    a.download = "resultado-demo.png";
                     a.click();
                     toast.success("Imagen descargada");
                     URL.revokeObjectURL(url);

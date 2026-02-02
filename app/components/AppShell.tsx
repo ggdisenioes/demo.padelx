@@ -140,17 +140,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <header className="md:hidden flex items-center justify-between px-4 py-4 bg-[#05070b] border-b border-gray-800">
             <div className="text-center flex-1">
               <p className="text-[11px] font-extrabold tracking-[0.26em] text-white uppercase">
-                TWINCO
+                DEMO
               </p>
-              <p className="text-[9px] font-semibold tracking-[0.32em] text-[#ccff00] uppercase mt-1">
-                Pádel Manager
+              <p className="text-[9px] font-semibold tracking-[0.32em] text-[#07fdbb] uppercase mt-1">
+                Padel Manager
               </p>
             </div>
 
             <button
               type="button"
               aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
-              className="ml-3 inline-flex items-center justify-center rounded-md border border-gray-700 p-2 text-gray-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#05070b] focus:ring-[#ccff00]"
+              className="ml-3 inline-flex items-center justify-center rounded-md border border-gray-700 p-2 text-gray-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#05070b] focus:ring-[#07fdbb]"
               onClick={() => setMobileOpen((o) => !o)}
             >
               {mobileOpen ? (
