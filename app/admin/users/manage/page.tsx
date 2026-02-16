@@ -1,14 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
+import { supabase } from "../../../lib/supabase";
 import { useRole } from "../../../../app/hooks/useRole";
 import toast from "react-hot-toast";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type UserProfile = {
   id: string;
@@ -21,6 +17,7 @@ type UserProfile = {
 };
 
 export default function AdminUsersManagePage() {
+  const router = useRouter();
   const { role, loading: roleLoading } = useRole();
 
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -63,10 +60,24 @@ export default function AdminUsersManagePage() {
     setError(null);
 
     try {
-      const { data, error } = await supabase
+      // Get current user's tenant to filter users
+      const { data: myProfile } = await supabase
+        .from("profiles")
+        .select("tenant_id")
+        .eq("id", authData?.user?.id ?? "")
+        .single();
+
+      let query = supabase
         .from("profiles")
         .select("id,email,role,active,created_at,first_name,last_name")
         .order("created_at", { ascending: false });
+
+      // Filter by tenant (only show same-tenant users)
+      if (myProfile?.tenant_id) {
+        query = query.eq("tenant_id", myProfile.tenant_id);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error("loadUsers error", error);
@@ -81,9 +92,12 @@ export default function AdminUsersManagePage() {
   };
 
   useEffect(() => {
-    if (!roleLoading) {
-      loadUsers();
+    if (roleLoading) return;
+    if (role !== "admin") {
+      router.push("/");
+      return;
     }
+    loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, roleLoading]);
 
