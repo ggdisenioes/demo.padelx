@@ -159,7 +159,7 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
     return (
       <div key={item.id} className="relative">
         {active && (
-          <div className="absolute left-0 top-0 h-full w-1 bg-[#ccff00]" />
+          <div className="absolute left-0 top-0 h-full w-1 bg-[#ff8c00]" />
         )}
 
         <Link
@@ -183,7 +183,7 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
         <h1 className="text-[26px] font-extrabold italic tracking-tight">
           PadelX Demo
         </h1>
-        <p className="mt-1 text-[10px] font-bold tracking-[0.3em] text-[#ccff00] uppercase">
+        <p className="mt-1 text-[10px] font-bold tracking-[0.3em] text-[#ff8c00] uppercase">
           Pádel Manager
         </p>
       </div>
@@ -264,7 +264,7 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
             <Link
               href="/login"
               onClick={onLinkClick}
-              className="text-sm text-[#ccff00] hover:underline"
+              className="text-sm text-[#ff8c00] hover:underline"
             >
               Iniciar sesión &rarr;
             </Link>
@@ -277,7 +277,7 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
             href="https://ggdisenio.es"
             target="_blank"
             rel="noreferrer"
-            className="font-bold hover:text-[#ccff00]"
+            className="font-bold hover:text-[#ff8c00]"
           >
             GGDisenio.es
           </a>
