@@ -6,7 +6,7 @@ function getResend() {
   return _resend;
 }
 const FROM_EMAIL = process.env.EMAIL_FROM || "PadelX <noreply@padelx.es>";
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://new.padelx.es";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://qa.padelx.es";
 
 function esc(str: string | null | undefined): string {
   if (!str) return "";

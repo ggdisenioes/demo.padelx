@@ -153,7 +153,7 @@ export default function DashboardPage() {
             <a
               href="https://ggdisenio.es"
               target="_blank"
-              className="text-gray-600 hover:text-[#e07800] font-bold transition"
+              className="text-gray-600 hover:text-[#0099dd] font-bold transition"
             >
               GGDisenio.es
             </a>
