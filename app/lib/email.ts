@@ -6,7 +6,7 @@ function getResend() {
   return _resend;
 }
 const FROM_EMAIL = process.env.EMAIL_FROM || "PadelX <noreply@padelx.es>";
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://qa.padelx.es";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://twinco.padelx.es";
 
 function esc(str: string | null | undefined): string {
   if (!str) return "";
@@ -30,7 +30,7 @@ function baseLayout(title: string, bodyHtml: string) {
     .card { max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e6e8ef; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,.08); }
     .header { background:#05070b; padding:18px 20px; }
     .brand { color:#fff; font-weight:900; letter-spacing:.26em; font-size:14px; font-style:italic; }
-    .sub { color:#ff8c00; font-weight:700; letter-spacing:.32em; font-size:10px; margin-top:4px; }
+    .sub { color:#ccff00; font-weight:700; letter-spacing:.32em; font-size:10px; margin-top:4px; }
     .content { padding:24px; color:#0f172a; }
     h2 { font-size:20px; font-weight:800; margin:0 0 12px; }
     p { font-size:14px; line-height:1.6; margin:0 0 12px; color:#334155; }
@@ -46,14 +46,14 @@ function baseLayout(title: string, bodyHtml: string) {
   <div class="wrap">
     <div class="card">
       <div class="header">
-        <div class="brand">PadelX Demo</div>
+        <div class="brand">TWINCO</div>
         <div class="sub">PÁDEL MANAGER</div>
       </div>
       <div class="content">
         ${bodyHtml}
       </div>
       <div class="footer">
-        Este email fue enviado automáticamente por PadelX Demo.
+        Este email fue enviado automáticamente por TWINCO Pádel Manager.
       </div>
     </div>
   </div>
@@ -68,7 +68,7 @@ export async function sendEmail(to: string, subject: string, htmlBody: string) {
   }
 
   try {
-    const { error } = await getResend().emails.send({
+    const { data, error } = await getResend().emails.send({
       from: FROM_EMAIL,
       to,
       subject,
@@ -76,10 +76,12 @@ export async function sendEmail(to: string, subject: string, htmlBody: string) {
     });
 
     if (error) {
-      console.error("[email] Resend error:", error);
+      console.error(`[email] Resend error sending to ${to}:`, error);
+    } else {
+      console.log(`[email] Sent to ${to} (id: ${data?.id})`);
     }
   } catch (err) {
-    console.error("[email] Failed to send email:", err);
+    console.error(`[email] Failed to send to ${to}:`, err);
   }
 }
 
@@ -105,7 +107,7 @@ export async function sendChallengeNotification(opts: {
     challengedPartnerName,
     challengedPartnerEmail,
     message,
-    clubName = "PadelX Demo",
+    clubName = "TWINCO",
   } = opts;
 
   const safeChallenger = esc(challengerName);
@@ -188,7 +190,7 @@ export async function sendMatchNotification(opts: {
   court?: string;
   clubName?: string;
 }) {
-  const { playerEmails, teamA, teamB, matchDate, court, clubName = "PadelX Demo" } = opts;
+  const { playerEmails, teamA, teamB, matchDate, court, clubName = "TWINCO" } = opts;
 
   const safeClub = esc(clubName);
   const safeTeamA = esc(teamA);
@@ -205,6 +207,44 @@ export async function sendMatchNotification(opts: {
       subject,
       `<h2>¡Nuevo Partido!</h2>
       <p>Hola <strong>${safeName}</strong>, tenés un nuevo partido programado.</p>
+      <table class="info-table">
+        <tr><td>Equipo A</td><td>${safeTeamA}</td></tr>
+        <tr><td>Equipo B</td><td>${safeTeamB}</td></tr>
+        <tr><td>Fecha</td><td>${safeDate}</td></tr>
+        ${court ? `<tr><td>Pista</td><td>${safeCourt}</td></tr>` : ""}
+      </table>
+      <a class="btn" href="${APP_URL}/matches">Ver partido</a>`
+    );
+
+    await sendEmail(player.email, subject, body);
+  }
+}
+
+export async function sendMatchReminderNotification(opts: {
+  playerEmails: { name: string; email: string | null }[];
+  teamA: string;
+  teamB: string;
+  matchDate: string;
+  court?: string;
+  clubName?: string;
+}) {
+  const { playerEmails, teamA, teamB, matchDate, court, clubName = "TWINCO" } = opts;
+
+  const safeClub = esc(clubName);
+  const safeTeamA = esc(teamA);
+  const safeTeamB = esc(teamB);
+  const safeDate = esc(matchDate);
+  const safeCourt = esc(court);
+  const subject = `Recordatorio de partido en ${safeClub}`;
+
+  for (const player of playerEmails) {
+    if (!player.email) continue;
+
+    const safeName = esc(player.name);
+    const body = baseLayout(
+      subject,
+      `<h2>Recordatorio de Partido</h2>
+      <p>Hola <strong>${safeName}</strong>, este es un recordatorio de tu partido.</p>
       <table class="info-table">
         <tr><td>Equipo A</td><td>${safeTeamA}</td></tr>
         <tr><td>Equipo B</td><td>${safeTeamB}</td></tr>
@@ -236,7 +276,7 @@ export async function sendMatchFinishedNotification(opts: {
     matchDate,
     court,
     roundName,
-    clubName = "PadelX Demo",
+    clubName = "TWINCO",
   } = opts;
 
   const safeClub = esc(clubName);
@@ -280,7 +320,7 @@ export async function sendMatchProposalNotification(opts: {
   court?: string;
   clubName?: string;
 }) {
-  const { adminEmails, teamA, teamB, matchDate, court, clubName = "PadelX Demo" } = opts;
+  const { adminEmails, teamA, teamB, matchDate, court, clubName = "TWINCO" } = opts;
 
   const safeClub = esc(clubName);
   const safeTeamA = esc(teamA);

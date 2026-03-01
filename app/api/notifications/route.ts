@@ -2,11 +2,15 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendMatchFinishedNotification, sendMatchNotification } from "@/lib/email";
+import {
+  sendMatchFinishedNotification,
+  sendMatchNotification,
+  sendMatchReminderNotification,
+} from "@/lib/email";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-type NotificationType = "match_created" | "match_finished";
+type NotificationType = "match_created" | "match_finished" | "match_reminder";
 
 export async function POST(req: Request) {
   try {
@@ -25,6 +29,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    });
+
+    const { data: callerProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    const callerRole = String(callerProfile?.role || "").toLowerCase();
+    if (!["admin", "manager", "super_admin"].includes(callerRole)) {
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    }
+
     const body = await req.json();
     const { type, match_id, match_ids } = body as {
       type?: NotificationType;
@@ -32,7 +51,7 @@ export async function POST(req: Request) {
       match_ids?: number[];
     };
 
-    if (type !== "match_created" && type !== "match_finished") {
+    if (type !== "match_created" && type !== "match_finished" && type !== "match_reminder") {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
 
@@ -46,10 +65,6 @@ export async function POST(req: Request) {
     if (ids.length === 0) {
       return NextResponse.json({ error: "No match IDs" }, { status: 400 });
     }
-
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false },
-    });
 
     // Fetch all matches
     const { data: matches, error: matchError } = await supabaseAdmin
@@ -122,35 +137,33 @@ export async function POST(req: Request) {
 
       // Log all players and their notification flags for debugging
       const matchPlayers = players.filter((p: any) => matchPlayerIds.includes(p.id));
+      console.log(
+        `[notifications] Match ${match.id}: All players in match:`,
+        matchPlayers.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          email: p.email || "(vacío)",
+          notify_email: p.notify_email,
+        }))
+      );
+
       const skipped = matchPlayers.filter(
         (p: any) => p.notify_email === false || !p.email
       );
       if (skipped.length > 0) {
         console.warn(
           `[notifications] Match ${match.id}: Skipped players:`,
-          skipped.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            email: p.email || "(vacío)",
-            notify_email: p.notify_email,
-          }))
+          skipped.map((p: any) => ({ id: p.id, name: p.name, reason: !p.email ? "sin email" : "notify_email=false" }))
         );
       }
 
-      // Filter eligible players and deduplicate by email
-      const seen = new Set<string>();
+      // Send to ALL eligible players (one email per player, even if same email address)
       const playerEmails = players
         .filter((p: any) => matchPlayerIds.includes(p.id) && p.notify_email !== false && p.email)
-        .map((p: any) => ({ name: p.name, email: p.email as string }))
-        .filter((entry) => {
-          const key = entry.email.toLowerCase();
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
+        .map((p: any) => ({ name: p.name, email: p.email as string }));
 
       console.log(
-        `[notifications] Match ${match.id}: Sending to ${playerEmails.length} unique emails:`,
+        `[notifications] Match ${match.id}: Sending ${playerEmails.length} emails:`,
         playerEmails.map((p) => `${p.name} <${p.email}>`)
       );
 
@@ -162,7 +175,16 @@ export async function POST(req: Request) {
             teamB,
             matchDate,
             court: courtText,
-            clubName: tenant?.name || "PadelX Demo",
+            clubName: tenant?.name || "TWINCO",
+          });
+        } else if (type === "match_reminder") {
+          await sendMatchReminderNotification({
+            playerEmails,
+            teamA,
+            teamB,
+            matchDate,
+            court: courtText,
+            clubName: tenant?.name || "TWINCO",
           });
         } else {
           if (!winners) {
@@ -178,7 +200,7 @@ export async function POST(req: Request) {
             matchDate,
             court: courtText,
             roundName: match.round_name || undefined,
-            clubName: tenant?.name || "PadelX Demo",
+            clubName: tenant?.name || "TWINCO",
           });
         }
         totalSent += playerEmails.length;

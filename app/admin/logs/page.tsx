@@ -6,7 +6,6 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../hooks/useRole";
 import { formatDateTimeMadrid } from "@/lib/dates";
-import { useTranslation } from "../../i18n";
 
 type AuditLog = {
   id: number;
@@ -20,6 +19,16 @@ type AuditLog = {
 
 type LogCategory = "all" | "auth" | "security" | "admin" | "users" | "competition" | "other";
 type LogTone = "neutral" | "info" | "success" | "warning" | "danger";
+
+const CATEGORY_LABELS: Record<LogCategory, string> = {
+  all: "Todos",
+  auth: "Autenticación",
+  security: "Seguridad",
+  admin: "Administración",
+  users: "Usuarios",
+  competition: "Competencia",
+  other: "Otros",
+};
 
 const TONE_CLASSES: Record<LogTone, string> = {
   neutral: "bg-gray-100 text-gray-700 border-gray-200",
@@ -102,23 +111,12 @@ function metadataToSearchString(metadata: Record<string, unknown> | null) {
 }
 
 export default function AdminLogsPage() {
-  const { t } = useTranslation();
   const router = useRouter();
   const { isAdmin, loading: roleLoading } = useRole();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<LogCategory>("all");
-
-  const categoryLabels: Record<LogCategory, string> = {
-    all: t("common.all"),
-    auth: "Autenticación",
-    security: "Seguridad",
-    admin: "Administración",
-    users: "Usuarios",
-    competition: "Competencia",
-    other: "Otros",
-  };
 
   const loadLogs = async () => {
     setLoading(true);
@@ -149,6 +147,7 @@ export default function AdminLogsPage() {
     return logs.filter((log) => {
       const logCategory = getActionCategory(log.action);
       if (category !== "all" && logCategory !== category) return false;
+
       if (!normalizedSearch) return true;
 
       const haystack = [
@@ -173,12 +172,12 @@ export default function AdminLogsPage() {
   if (!isAdmin) {
     return (
       <div className="p-8">
-        <h1 className="text-xl font-bold">{t("admin.logs.accessDenied")}</h1>
+        <h1 className="text-xl font-bold">Acceso denegado</h1>
         <p className="text-gray-600">
-          {t("admin.logs.noPermission")}
+          No tenés permisos para ver esta sección.
         </p>
         <Link href="/" className="text-indigo-600 underline mt-4 inline-block">
-          {t("admin.logs.backToDashboard")}
+          Volver al dashboard
         </Link>
       </div>
     );
@@ -189,10 +188,10 @@ export default function AdminLogsPage() {
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {t("admin.logs.title")}
+            Logs del sistema
           </h1>
           <p className="text-sm text-gray-500">
-            {t("admin.logs.subtitle")}
+            Historial de acciones realizadas por los usuarios
           </p>
         </div>
 
@@ -200,7 +199,7 @@ export default function AdminLogsPage() {
           href="/"
           className="text-sm font-semibold text-indigo-600 hover:text-indigo-700"
         >
-          {t("admin.logs.backToDashboard")}
+          ← Volver al dashboard
         </Link>
       </header>
 
@@ -234,7 +233,7 @@ export default function AdminLogsPage() {
             onChange={(e) => setCategory(e.target.value as LogCategory)}
             className="w-full lg:w-56 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           >
-            {Object.entries(categoryLabels).map(([value, label]) => (
+            {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
@@ -259,11 +258,11 @@ export default function AdminLogsPage() {
       <section className="space-y-3">
         {loading ? (
           <div className="rounded-xl border bg-white p-4 text-sm text-gray-500 shadow-sm">
-            {t("admin.logs.loading")}
+            Cargando logs...
           </div>
         ) : filteredLogs.length === 0 ? (
           <div className="rounded-xl border bg-white p-4 text-sm text-gray-500 shadow-sm">
-            {t("admin.logs.empty")}
+            No hay registros para el filtro aplicado.
           </div>
         ) : (
           filteredLogs.map((log) => {
@@ -284,7 +283,7 @@ export default function AdminLogsPage() {
                       </span>
 
                       <span className="inline-flex rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-600">
-                        {categoryLabels[actionCategory]}
+                        {CATEGORY_LABELS[actionCategory]}
                       </span>
 
                       {log.entity && (
@@ -296,7 +295,7 @@ export default function AdminLogsPage() {
                     </div>
 
                     <p className="mt-2 text-sm text-gray-800 break-words">
-                      <span className="font-semibold">{log.user_email ?? t("admin.logs.system")}</span>
+                      <span className="font-semibold">{log.user_email ?? "Sistema"}</span>
                     </p>
                   </div>
 

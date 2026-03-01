@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
       try {
         // Send via Resend
         const response = await resend.emails.send({
-          from: "PadelX Demo <noreply@padelx.es>",
+          from: "TWINCO Pádel <noreply@twincopadelx.com>",
           to: email.recipient_email,
           subject: email.subject,
           html: email.body_html,
