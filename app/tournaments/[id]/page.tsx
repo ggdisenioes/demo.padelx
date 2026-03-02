@@ -359,7 +359,7 @@ export default function TournamentDetail() {
                   <div style={{ textAlign: "center" }}>
                     <img
                       src="/logo.svg"
-                      alt="TWINCO"
+                      alt="PADELX DEMO"
                       style={{
                         height: 44,
                         width: "auto",
@@ -490,7 +490,7 @@ export default function TournamentDetail() {
                         height: 520,
                       });
                       const link = document.createElement("a");
-                      link.download = `Twinco_Partido_${m.id}.png`;
+                      link.download = `PadelXDemo_Partido_${m.id}.png`;
                       link.href = dataUrl;
                       link.click();
                       toast.success(t("matches.imageDownloaded"));

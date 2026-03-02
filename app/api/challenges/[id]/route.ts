@@ -285,7 +285,7 @@ export async function PUT(
             teamB,
             matchDate,
             court: courtText,
-            clubName: tenant?.name || "TWINCO",
+            clubName: tenant?.name || "PADELX DEMO",
           });
         }
       } catch (notifError) {
