@@ -7,8 +7,8 @@ import { LanguageProvider } from "./i18n";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "TWINCO Pádel Manager",
-  description: "Gestión de torneos y jugadores de pádel en tiempo real",
+  title: "PadelX Demo",
+  description: "Entorno demo de PadelX",
 };
 
 export default function RootLayout({
