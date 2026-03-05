@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 
 import { supabase } from "../../../lib/supabase";
@@ -20,6 +20,13 @@ type Format = "liga" | "grupos" | "eliminacion";
 type Team = {
   a: number; // jugador 1
   b: number; // jugador 2
+};
+
+type TournamentRound = {
+  id: number;
+  round_number: number;
+  round_name: string;
+  start_at: string;
 };
 
 const ROUND_NAMES: Record<number, string> = {
@@ -75,13 +82,17 @@ function matchupKey(t1: Team, t2: Team) {
 export default function GenerateMatchesPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAdmin, isManager, loading: roleLoading } = useRole();
+  const requestedRoundId = searchParams.get("round_id") || searchParams.get("round");
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
   const [format, setFormat] = useState<Format>("liga");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [rounds, setRounds] = useState<TournamentRound[]>([]);
+  const [selectedRoundId, setSelectedRoundId] = useState<string>("");
 
   // Fecha base (necesaria porque start_time en matches es NOT NULL)
   const [startDate, setStartDate] = useState<string>("");
@@ -96,6 +107,10 @@ export default function GenerateMatchesPage() {
   const [pairingSeed, setPairingSeed] = useState<number>(() => (Date.now() % 2147483647) | 0);
 
   const tournamentId = useMemo(() => Number(id), [id]);
+  const selectedRound = useMemo(
+    () => rounds.find((round) => String(round.id) === selectedRoundId) || null,
+    [rounds, selectedRoundId]
+  );
 
   /* 🚫 Seguridad */
   if (!roleLoading && !isAdmin && !isManager) {
@@ -128,11 +143,31 @@ export default function GenerateMatchesPage() {
       }
 
       setPlayers((data || []) as Player[]);
+
+      const { data: roundsData, error: roundsError } = await supabase
+        .from("tournament_rounds")
+        .select("id, round_number, round_name, start_at")
+        .eq("tournament_id", tournamentId)
+        .order("round_number", { ascending: true });
+
+      if (roundsError) {
+        console.error("[generate-matches] error cargando jornadas", roundsError);
+        setRounds([]);
+      } else {
+        const nextRounds = (roundsData || []) as TournamentRound[];
+        setRounds(nextRounds);
+        if (nextRounds.length > 0) {
+          const initialRound =
+            nextRounds.find((round) => String(round.id) === requestedRoundId) || nextRounds[0];
+          setSelectedRoundId(String(initialRound.id));
+          setStartDate(initialRound.start_at.slice(0, 10));
+        }
+      }
       setLoading(false);
     };
 
     loadPlayers();
-  }, []);
+  }, [tournamentId, requestedRoundId]);
 
   const togglePlayer = (playerId: number) => {
     setSelectedPlayers((prev) =>
@@ -207,7 +242,12 @@ export default function GenerateMatchesPage() {
       return;
     }
 
-    if (!startDate) {
+    if (rounds.length > 0 && !selectedRound) {
+      toast.error("Seleccioná la jornada donde querés generar los partidos");
+      return;
+    }
+
+    if (!startDate && !selectedRound?.start_at) {
       toast.error("Seleccioná la fecha de inicio del torneo");
       return;
     }
@@ -264,7 +304,7 @@ export default function GenerateMatchesPage() {
 
     const matchupExists = (t1: Team, t2: Team) => existingMatchups.has(matchupKey(t1, t2));
 
-    const baseStart = new Date(startDate);
+    const baseStart = new Date(selectedRound?.start_at || startDate);
     if (Number.isNaN(baseStart.getTime())) {
       toast.error("Fecha inválida");
       setCreating(false);
@@ -284,6 +324,7 @@ export default function GenerateMatchesPage() {
 
     if (format === "liga") {
       // Liga (todos contra todos) ENTRE PAREJAS
+      const leagueRoundName = selectedRound?.round_name || "Liga";
       for (let i = 0; i < teams.length; i++) {
         for (let j = i + 1; j < teams.length; j++) {
           const t1 = teams[i];
@@ -295,7 +336,7 @@ export default function GenerateMatchesPage() {
 
           newMatches.push({
             tournament_id: tournamentId,
-            round_name: "Liga",
+            round_name: leagueRoundName,
             player_1_a: t1.a,
             player_2_a: t1.b,
             player_1_b: t2.a,
@@ -319,7 +360,10 @@ export default function GenerateMatchesPage() {
       });
 
       groups.forEach((groupTeams, idx) => {
-        const groupName = `Grupo ${String.fromCharCode(65 + idx)}`;
+        const baseGroupName = `Grupo ${String.fromCharCode(65 + idx)}`;
+        const groupName = selectedRound
+          ? `${selectedRound.round_name} - ${baseGroupName}`
+          : baseGroupName;
 
         for (let i = 0; i < groupTeams.length; i++) {
           for (let j = i + 1; j < groupTeams.length; j++) {
@@ -391,7 +435,10 @@ export default function GenerateMatchesPage() {
       // “BYE” en eliminación: equipos que pasan de ronda sin jugar.
       // En vez de insertar partidos con nulls, simplemente dejamos equipos sin rival.
       // Para la primera ronda, emparejamos en espejo y saltamos los que no tengan rival.
-      const roundName = ROUND_NAMES[nextPow2] || `Ronda de ${nextPow2}`;
+      const eliminationBaseRoundName = ROUND_NAMES[nextPow2] || `Ronda de ${nextPow2}`;
+      const roundName = selectedRound
+        ? `${selectedRound.round_name} - ${eliminationBaseRoundName}`
+        : eliminationBaseRoundName;
 
       // Armamos una grilla con huecos (BYE)
       const slots: (Team | null)[] = [...elimTeams];
@@ -480,6 +527,33 @@ export default function GenerateMatchesPage() {
 
       <Card>
         <div className="space-y-6">
+          {rounds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Jornada</label>
+              <select
+                value={selectedRoundId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setSelectedRoundId(nextId);
+                  const round = rounds.find((item) => String(item.id) === nextId);
+                  if (round) setStartDate(round.start_at.slice(0, 10));
+                }}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Seleccionar jornada</option>
+                {rounds.map((round) => (
+                  <option key={round.id} value={round.id}>
+                    {`${round.round_name} · ${new Date(round.start_at).toLocaleString("es-ES", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                      timeZone: "Europe/Madrid",
+                    })}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Formato */}
           <div>
             <label className="block text-sm font-medium mb-1">Formato</label>
