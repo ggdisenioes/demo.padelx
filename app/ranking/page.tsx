@@ -283,7 +283,7 @@ export default function RankingPage() {
           </p>
         ) : players.length === 0 ? (
           <p className="text-gray-400 text-center">
-            Todavía no hay jugadores con puntos. ¡Registrá algunos partidos!
+            Todavía no hay jugadores con puntos. ¡Registra algunos partidos!
           </p>
         ) : (
           <>

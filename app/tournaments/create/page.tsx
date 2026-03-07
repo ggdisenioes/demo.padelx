@@ -33,19 +33,19 @@ export default function CreateTournament() {
   useEffect(() => {
     if (roleLoading) return;
     if (!isAdmin && !isManager) {
-      toast.error("No tenés permisos para crear torneos");
+      toast.error("No tienes permisos para crear torneos");
       router.replace("/tournaments");
     }
   }, [isAdmin, isManager, roleLoading, router]);
 
   const handleCreate = async () => {
     if (!isAdmin && !isManager) {
-      toast.error("No tenés permisos para crear torneos");
+      toast.error("No tienes permisos para crear torneos");
       return;
     }
 
     if (!name.trim()) {
-      toast.error("Ingresá un nombre para el torneo");
+      toast.error("Accede un nombre para el torneo");
       return;
     }
 
@@ -61,7 +61,7 @@ export default function CreateTournament() {
       : category;
 
     if (!finalCategory) {
-      toast.error("Ingresá una categoría válida");
+      toast.error("Accede una categoría válida");
       setLoading(false);
       return;
     }
@@ -73,17 +73,29 @@ export default function CreateTournament() {
       start_date: startDate ? startDate : null,
     };
 
-    const { data, error } = await supabase
-      .from("tournaments")
-      .insert(payload)
-      .select("id")
-      .single();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const accessToken = session?.access_token;
+    if (!accessToken) {
+      toast.error("Sesión no válida. Volvé a iniciar sesión.");
+      setLoading(false);
+      return;
+    }
 
-    if (error) {
-      console.error(error);
-      const msg = error.message?.includes('PLAN_LIMIT')
-        ? error.message.replace('PLAN_LIMIT: ', '')
-        : "Error al crear el torneo";
+    const response = await fetch("/api/tournaments/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.data?.id) {
+      const msg = result?.error || "Error al crear el torneo";
+      console.error("[CreateTournament] API error:", msg);
       toast.error(msg);
       setLoading(false);
       return;
