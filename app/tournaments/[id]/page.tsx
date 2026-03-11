@@ -49,6 +49,61 @@ type TournamentDetailCachePayload = {
 const TOURNAMENT_DETAIL_CACHE_KEY_PREFIX = "padelx:tournament:detail:v1:";
 const TOURNAMENT_DETAIL_CACHE_TTL_MS = 90 * 1000;
 const ROUND_ORDER = ["Fase de Grupos", "Octavos", "Cuartos", "Semifinal", "Final"];
+const BRACKET_CARD_HEIGHT_PX = 124;
+const BRACKET_BASE_GAP_PX = 14;
+const BRACKET_CONNECTOR_PX = 20;
+
+type CupBracketSlot = {
+  key: string;
+  match: Match | null;
+};
+
+type CupBracketRound = {
+  phaseName: string;
+  roundDepth: number;
+  slots: CupBracketSlot[];
+};
+
+type CupBracketSideRound = CupBracketRound & {
+  leftSlots: CupBracketSlot[];
+  rightSlots: CupBracketSlot[];
+};
+
+function getCupPhaseSize(phaseName: string) {
+  const normalized = phaseName.trim().toLowerCase();
+  if (normalized === "final") return 2;
+  if (normalized === "semifinal") return 4;
+  if (normalized === "cuartos") return 8;
+  if (normalized === "octavos") return 16;
+  if (normalized === "dieciseisavos") return 32;
+
+  const dynamic = normalized.match(/ronda\s+de\s+(\d+)/i);
+  if (dynamic) {
+    const parsed = Number(dynamic[1]);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function sortMatchesForBracket(a: Match, b: Match) {
+  const aTs = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+  const bTs = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+  if (aTs !== bTs) return aTs - bTs;
+  return a.id - b.id;
+}
+
+function getBracketTopOffset(roundDepth: number) {
+  if (roundDepth <= 0) return 0;
+  const stride = BRACKET_CARD_HEIGHT_PX + BRACKET_BASE_GAP_PX;
+  return (stride / 2) * (2 ** roundDepth - 1);
+}
+
+function getBracketRoundGap(roundDepth: number) {
+  if (roundDepth <= 0) return BRACKET_BASE_GAP_PX;
+  const stride = BRACKET_CARD_HEIGHT_PX + BRACKET_BASE_GAP_PX;
+  return stride * 2 ** roundDepth - BRACKET_CARD_HEIGHT_PX;
+}
 
 export default function TournamentDetail() {
   const params = useParams<{ id: string }>();
@@ -341,28 +396,6 @@ export default function TournamentDetail() {
     tournament?.league_mode === "double_leg" ? "double_leg" : "single_leg";
   const isCupTournament = tournamentType === "cup";
 
-  const cupPhaseOrder = useMemo(() => {
-    const phases = Object.keys(matchesByRound)
-      .map((roundName) => extractCupPhase(roundName))
-      .filter((phase): phase is string => Boolean(phase));
-
-    const unique = [...new Set(phases)];
-    return unique.sort((a, b) => {
-      const parseSize = (value: string) => {
-        const normalized = value.toLowerCase();
-        if (normalized === "final") return 2;
-        if (normalized === "semifinal") return 4;
-        if (normalized === "cuartos") return 8;
-        if (normalized === "octavos") return 16;
-        if (normalized === "dieciseisavos") return 32;
-        const dynamic = normalized.match(/ronda\\s+de\\s+(\\d+)/i);
-        const parsed = dynamic ? Number(dynamic[1]) : NaN;
-        return Number.isFinite(parsed) ? parsed : 999;
-      };
-      return parseSize(b) - parseSize(a);
-    });
-  }, [matchesByRound]);
-
   const cupMatchesByPhase = useMemo(() => {
     const map: Record<string, Match[]> = {};
     Object.entries(matchesByRound).forEach(([roundName, roundMatches]) => {
@@ -373,6 +406,100 @@ export default function TournamentDetail() {
     });
     return map;
   }, [matchesByRound]);
+
+  const cupBracketRounds = useMemo<CupBracketRound[]>(() => {
+    const phaseNames = Object.keys(cupMatchesByPhase).sort(
+      (a, b) => getCupPhaseSize(b) - getCupPhaseSize(a)
+    );
+    if (phaseNames.length === 0) return [];
+
+    let previousExpectedSlots = 0;
+    return phaseNames.map((phaseName, roundDepth) => {
+      const phaseMatches = [...(cupMatchesByPhase[phaseName] || [])].sort(sortMatchesForBracket);
+      const expectedFromTree =
+        roundDepth === 0 ? phaseMatches.length : Math.max(1, Math.ceil(previousExpectedSlots / 2));
+      const expectedSlots = Math.max(expectedFromTree, phaseMatches.length || 0, 1);
+      previousExpectedSlots = expectedSlots;
+
+      const slots: CupBracketSlot[] = Array.from({ length: expectedSlots }, (_, index) => ({
+        key: `${phaseName}-${index}`,
+        match: phaseMatches[index] || null,
+      }));
+
+      return { phaseName, roundDepth, slots };
+    });
+  }, [cupMatchesByPhase]);
+
+  const cupFinalRound = useMemo(
+    () => (cupBracketRounds.length > 0 ? cupBracketRounds[cupBracketRounds.length - 1] : null),
+    [cupBracketRounds]
+  );
+
+  const cupSideRounds = useMemo<CupBracketSideRound[]>(() => {
+    if (cupBracketRounds.length <= 1) return [];
+    return cupBracketRounds.slice(0, -1).map((round) => {
+      const pivot = Math.ceil(round.slots.length / 2);
+      return {
+        ...round,
+        leftSlots: round.slots.slice(0, pivot),
+        rightSlots: round.slots.slice(pivot),
+      };
+    });
+  }, [cupBracketRounds]);
+
+  const rightCupSideRounds = useMemo(() => [...cupSideRounds].reverse(), [cupSideRounds]);
+
+  const noResultMessage =
+    locale === "en" ? "This match has no result yet." : "Este partido todavia no tiene resultado.";
+
+  const openPlayedMatch = (match: Match | null) => {
+    if (!match) return;
+    if (!isPlayed(match)) {
+      toast.error(noResultMessage);
+      return;
+    }
+    setOpenResultMatch(match);
+  };
+
+  const renderCupSlotCard = (slot: CupBracketSlot) => {
+    if (!slot.match) {
+      return (
+        <div className="h-[124px] rounded-xl border border-dashed border-slate-300 bg-white/70 px-3 py-2 flex items-center justify-center text-xs text-slate-400">
+          Pendiente de definir
+        </div>
+      );
+    }
+
+    const m = slot.match;
+    const teamA = buildTeamName(m.player_1_a, m.player_2_a);
+    const teamB = buildTeamName(m.player_1_b, m.player_2_b);
+    const played = isPlayed(m);
+    const score = formatScore(m.score);
+
+    return (
+      <button
+        type="button"
+        onClick={() => openPlayedMatch(m)}
+        className={`h-[124px] w-full rounded-xl border bg-white px-3 py-2 text-left transition ${
+          played ? "border-slate-300 hover:shadow-sm" : "border-slate-200"
+        }`}
+      >
+        <div className="flex items-center justify-between text-[11px] text-slate-500 mb-2">
+          <span>{formatMatchDate(m.start_time) || "-"}</span>
+          <span className="font-semibold text-slate-700">{score || "-"}</span>
+        </div>
+
+        <div className="space-y-1 text-sm leading-tight">
+          <p className={m.winner === "A" ? "font-semibold text-emerald-700 truncate" : "text-slate-700 truncate"}>
+            {teamA}
+          </p>
+          <p className={m.winner === "B" ? "font-semibold text-emerald-700 truncate" : "text-slate-700 truncate"}>
+            {teamB}
+          </p>
+        </div>
+      </button>
+    );
+  };
 
   if (loading) {
     return (
@@ -462,60 +589,142 @@ export default function TournamentDetail() {
                 </div>
               )}
 
-              {cupPhaseOrder.length === 0 ? (
+              {cupBracketRounds.length === 0 ? (
                 <p className="text-sm text-gray-500">{t("tournaments.noMatchesYet")}</p>
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:p-4 overflow-x-auto">
-                  <div className="flex items-start gap-4 min-w-max">
-                    {cupPhaseOrder.map((phaseName) => {
-                      const phaseMatches = cupMatchesByPhase[phaseName] || [];
-                      return (
-                        <div key={phaseName} className="w-[300px]">
-                          <div className="rounded-xl bg-slate-900 text-white px-4 py-2 mb-3 text-sm font-semibold text-center">
-                            {translateRoundName(phaseName)}
-                          </div>
-
-                          <div className="space-y-3">
-                            {phaseMatches.length === 0 ? (
-                              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-500 text-center">
-                                Sin cruces cargados
-                              </div>
-                            ) : (
-                              phaseMatches.map((m) => {
-                                const teamA = buildTeamName(m.player_1_a, m.player_2_a);
-                                const teamB = buildTeamName(m.player_1_b, m.player_2_b);
-                                const played = isPlayed(m);
-                                return (
-                                  <div
-                                    key={m.id}
-                                    onClick={() => {
-                                      if (!played) return;
-                                      setOpenResultMatch(m);
-                                    }}
-                                    className={`rounded-xl border bg-white p-3 ${
-                                      played ? "cursor-pointer hover:shadow-sm" : "cursor-default"
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-                                      <span>{formatMatchDate(m.start_time)}</span>
-                                      {m.score && <span className="font-semibold text-slate-800">{m.score}</span>}
-                                    </div>
-                                    <div className="space-y-2 text-sm">
-                                      <p className={m.winner === "A" ? "font-semibold text-emerald-700" : "text-slate-800"}>
-                                        {teamA}
-                                      </p>
-                                      <p className={m.winner === "B" ? "font-semibold text-emerald-700" : "text-slate-800"}>
-                                        {teamB}
-                                      </p>
-                                    </div>
+                  <div
+                    className="flex items-stretch justify-center gap-8 min-w-max px-2 py-2"
+                    style={{
+                      minWidth: `${Math.max(960, 560 + cupSideRounds.length * 520)}px`,
+                    }}
+                  >
+                    <div className="flex items-start gap-8">
+                      {cupSideRounds.map((round) => {
+                        const gap = getBracketRoundGap(round.roundDepth);
+                        const stride = BRACKET_CARD_HEIGHT_PX + gap;
+                        const pairCount = Math.floor(round.leftSlots.length / 2);
+                        return (
+                          <div key={`left-${round.phaseName}`} className="w-[250px] shrink-0">
+                            <div className="rounded-xl bg-slate-900 text-white px-3 py-2 mb-3 text-sm font-semibold text-center">
+                              {translateRoundName(round.phaseName)}
+                            </div>
+                            <div
+                              className="relative"
+                              style={{ paddingTop: `${getBracketTopOffset(round.roundDepth)}px` }}
+                            >
+                              <div className="relative flex flex-col" style={{ gap: `${gap}px` }}>
+                                {round.leftSlots.map((slot) => (
+                                  <div key={slot.key} className="relative">
+                                    {renderCupSlotCard(slot)}
+                                    <span className="absolute top-1/2 -translate-y-1/2 -right-[20px] w-[20px] border-t-2 border-slate-300" />
                                   </div>
-                                );
-                              })
-                            )}
+                                ))}
+                              </div>
+
+                              {pairCount > 0 &&
+                                Array.from({ length: pairCount }).map((_, pairIndex) => {
+                                  const firstCenter = BRACKET_CARD_HEIGHT_PX / 2 + pairIndex * 2 * stride;
+                                  const secondCenter = firstCenter + stride;
+                                  const middle = (firstCenter + secondCenter) / 2;
+                                  return (
+                                    <div key={`left-connector-${round.phaseName}-${pairIndex}`}>
+                                      <span
+                                        className="absolute border-l-2 border-slate-300"
+                                        style={{
+                                          right: `-${BRACKET_CONNECTOR_PX}px`,
+                                          top: `${firstCenter}px`,
+                                          height: `${secondCenter - firstCenter}px`,
+                                        }}
+                                      />
+                                      <span
+                                        className="absolute border-t-2 border-slate-300"
+                                        style={{
+                                          right: `-${BRACKET_CONNECTOR_PX * 2}px`,
+                                          top: `${middle}px`,
+                                          width: `${BRACKET_CONNECTOR_PX}px`,
+                                        }}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                            </div>
                           </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="w-[260px] shrink-0 flex flex-col items-center justify-center">
+                      <div className="rounded-xl bg-slate-900 text-white px-3 py-2 mb-3 text-sm font-semibold text-center w-full">
+                        {translateRoundName(cupFinalRound?.phaseName || "Final")}
+                      </div>
+                      {cupFinalRound?.slots[0] ? (
+                        <div className="relative w-full">
+                          <span className="absolute top-1/2 -translate-y-1/2 -left-[20px] w-[20px] border-t-2 border-slate-300" />
+                          <span className="absolute top-1/2 -translate-y-1/2 -right-[20px] w-[20px] border-t-2 border-slate-300" />
+                          {renderCupSlotCard(cupFinalRound.slots[0])}
                         </div>
-                      );
-                    })}
+                      ) : (
+                        <div className="w-full h-[124px] rounded-xl border border-dashed border-slate-300 bg-white/70 px-3 py-2 flex items-center justify-center text-xs text-slate-400">
+                          Final pendiente
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-start gap-8">
+                      {rightCupSideRounds.map((round) => {
+                        const gap = getBracketRoundGap(round.roundDepth);
+                        const stride = BRACKET_CARD_HEIGHT_PX + gap;
+                        const pairCount = Math.floor(round.rightSlots.length / 2);
+                        return (
+                          <div key={`right-${round.phaseName}`} className="w-[250px] shrink-0">
+                            <div className="rounded-xl bg-slate-900 text-white px-3 py-2 mb-3 text-sm font-semibold text-center">
+                              {translateRoundName(round.phaseName)}
+                            </div>
+                            <div
+                              className="relative"
+                              style={{ paddingTop: `${getBracketTopOffset(round.roundDepth)}px` }}
+                            >
+                              <div className="relative flex flex-col" style={{ gap: `${gap}px` }}>
+                                {round.rightSlots.map((slot) => (
+                                  <div key={slot.key} className="relative">
+                                    {renderCupSlotCard(slot)}
+                                    <span className="absolute top-1/2 -translate-y-1/2 -left-[20px] w-[20px] border-t-2 border-slate-300" />
+                                  </div>
+                                ))}
+                              </div>
+
+                              {pairCount > 0 &&
+                                Array.from({ length: pairCount }).map((_, pairIndex) => {
+                                  const firstCenter = BRACKET_CARD_HEIGHT_PX / 2 + pairIndex * 2 * stride;
+                                  const secondCenter = firstCenter + stride;
+                                  const middle = (firstCenter + secondCenter) / 2;
+                                  return (
+                                    <div key={`right-connector-${round.phaseName}-${pairIndex}`}>
+                                      <span
+                                        className="absolute border-l-2 border-slate-300"
+                                        style={{
+                                          left: `-${BRACKET_CONNECTOR_PX}px`,
+                                          top: `${firstCenter}px`,
+                                          height: `${secondCenter - firstCenter}px`,
+                                        }}
+                                      />
+                                      <span
+                                        className="absolute border-t-2 border-slate-300"
+                                        style={{
+                                          left: `-${BRACKET_CONNECTOR_PX * 2}px`,
+                                          top: `${middle}px`,
+                                          width: `${BRACKET_CONNECTOR_PX}px`,
+                                        }}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
