@@ -2,18 +2,30 @@
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { supabase } from "../../lib/supabase";
 import Badge from "../../components/Badge";
 import toast from "react-hot-toast";
 import MatchCard, { type Match } from "../../components/matches/MatchCard";
 import { useTranslation } from "../../i18n";
 import { useRole } from "../../hooks/useRole";
+import { waitForSession } from "../../lib/auth-session";
+import { getClientCache, setClientCache } from "../../lib/clientCache";
+import {
+  DEFAULT_LEAGUE_MODE,
+  DEFAULT_TOURNAMENT_TYPE,
+  LEAGUE_MODE_LABEL,
+  TOURNAMENT_TYPE_LABEL,
+  extractCupPhase,
+} from "../../lib/tournamentFormats";
 
 type Tournament = {
   id: number;
   name: string;
   category: string | null;
   start_date: string | null;
+  tournament_type?: "league" | "cup" | null;
+  league_mode?: "single_leg" | "double_leg" | null;
 };
 
 type PlayerMap = {
@@ -27,20 +39,31 @@ type TournamentRound = {
   start_at: string;
 };
 
+type TournamentDetailCachePayload = {
+  tournament: Tournament | null;
+  matches: Match[];
+  tournamentRounds: TournamentRound[];
+  playersMap: PlayerMap;
+};
+
+const TOURNAMENT_DETAIL_CACHE_KEY_PREFIX = "padelx:tournament:detail:v1:";
+const TOURNAMENT_DETAIL_CACHE_TTL_MS = 90 * 1000;
+const ROUND_ORDER = ["Fase de Grupos", "Octavos", "Cuartos", "Semifinal", "Final"];
+
 export default function TournamentDetail() {
-  const params = useParams();
+  const params = useParams<{ id: string }>();
   const router = useRouter();
   const { t, locale } = useTranslation();
   const { isAdmin, isManager, loading: roleLoading } = useRole();
 
-  const rawId = (params as any)?.id;
-  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const idNum = Number(id);
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
   const [tournamentRounds, setTournamentRounds] = useState<TournamentRound[]>([]);
   const [playersMap, setPlayersMap] = useState<PlayerMap>({});
+  const [canManageByProfile, setCanManageByProfile] = useState(false);
   const [openResultMatch, setOpenResultMatch] = useState<Match | null>(null);
   const [loading, setLoading] = useState(true);
   const shareCardRef = useRef<HTMLDivElement | null>(null);
@@ -55,9 +78,34 @@ export default function TournamentDetail() {
     }
 
     const load = async () => {
-      setLoading(true);
+      const cacheKey = `${TOURNAMENT_DETAIL_CACHE_KEY_PREFIX}${idNum}`;
+      const cached = getClientCache<TournamentDetailCachePayload>(
+        cacheKey,
+        TOURNAMENT_DETAIL_CACHE_TTL_MS
+      );
+
+      if (cached) {
+        setTournament(cached.tournament ?? null);
+        setMatches(cached.matches ?? []);
+        setTournamentRounds(cached.tournamentRounds ?? []);
+        setPlayersMap(cached.playersMap ?? {});
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
 
       try {
+        try {
+          const roleRes = await fetch("/api/auth/whoami-role", { cache: "no-store" });
+          const roleData = await roleRes.json().catch(() => null);
+          setCanManageByProfile(Boolean(roleData?.can_manage_tournaments));
+        } catch {
+          setCanManageByProfile(false);
+        }
+
+        // Esperamos a que la sesión esté restaurada para evitar falsos "no encontrado" por RLS.
+        await waitForSession(supabase, { retries: 16, delayMs: 180 });
+
         const [
           { data: tData, error: tError },
           { data: mData, error: mError },
@@ -67,7 +115,7 @@ export default function TournamentDetail() {
           await Promise.all([
             supabase
               .from("tournaments")
-              .select("id, name, category, start_date")
+              .select("*")
               .eq("id", idNum)
               .maybeSingle(),
             supabase
@@ -100,13 +148,20 @@ export default function TournamentDetail() {
         }
 
         if (tData) {
-          setTournament(tData as Tournament);
+          setTournament({
+            ...(tData as Tournament),
+            tournament_type:
+              (tData as Tournament).tournament_type || DEFAULT_TOURNAMENT_TYPE,
+            league_mode: (tData as Tournament).league_mode || DEFAULT_LEAGUE_MODE,
+          });
         } else if (tournamentMatches.length > 0) {
           setTournament({
             id: idNum,
             name: `${t("nav.tournaments")} #${idNum}`,
             category: null,
             start_date: null,
+            tournament_type: DEFAULT_TOURNAMENT_TYPE,
+            league_mode: DEFAULT_LEAGUE_MODE,
           });
         } else {
           setTournament(null);
@@ -128,6 +183,36 @@ export default function TournamentDetail() {
         } else {
           setTournamentRounds((roundsData || []) as TournamentRound[]);
         }
+
+        const safeTournament = tData
+          ? ({
+              ...(tData as Tournament),
+              tournament_type:
+                (tData as Tournament).tournament_type || DEFAULT_TOURNAMENT_TYPE,
+              league_mode: (tData as Tournament).league_mode || DEFAULT_LEAGUE_MODE,
+            } as Tournament)
+          : tournamentMatches.length > 0
+            ? {
+                id: idNum,
+                name: `${t("nav.tournaments")} #${idNum}`,
+                category: null,
+                start_date: null,
+                tournament_type: DEFAULT_TOURNAMENT_TYPE,
+                league_mode: DEFAULT_LEAGUE_MODE,
+              }
+            : null;
+
+        const safePlayerMap: PlayerMap = {};
+        (pData || []).forEach((p) => {
+          safePlayerMap[p.id] = p.name;
+        });
+
+        setClientCache<TournamentDetailCachePayload>(cacheKey, {
+          tournament: safeTournament,
+          matches: tournamentMatches,
+          tournamentRounds: (roundsData || []) as TournamentRound[],
+          playersMap: safePlayerMap,
+        });
       } finally {
         setLoading(false);
       }
@@ -169,15 +254,22 @@ export default function TournamentDetail() {
   const isPlayed = (m: Match) =>
     !!m?.score && !!m?.winner && String(m.winner).toLowerCase() !== "pending";
 
-  const getPlayerName = (value: any) => {
+  const getPlayerName = (value: unknown) => {
     if (value == null) return t("matches.tbd");
-    if (typeof value === "object" && typeof value.name === "string") return value.name;
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "name" in value &&
+      typeof (value as { name?: unknown }).name === "string"
+    ) {
+      return (value as { name: string }).name;
+    }
     const numericId = Number(value);
     if (Number.isFinite(numericId)) return playersMap[numericId] || t("matches.tbd");
     return t("matches.tbd");
   };
 
-  const buildTeamName = (a?: any, b?: any) => {
+  const buildTeamName = (a?: unknown, b?: unknown) => {
     const p1 = getPlayerName(a);
     const p2 = getPlayerName(b);
     return [p1, p2].filter(Boolean).join(" y ");
@@ -219,14 +311,11 @@ export default function TournamentDetail() {
     }, {});
   }, [matches]);
 
-  // Orden lógico de rondas
-  const roundOrder = ["Fase de Grupos", "Octavos", "Cuartos", "Semifinal", "Final"];
-
   const sortedRounds = useMemo(() => {
     const rounds = Object.keys(matchesByRound);
     return rounds.sort((a, b) => {
-      const ia = roundOrder.indexOf(a);
-      const ib = roundOrder.indexOf(b);
+      const ia = ROUND_ORDER.indexOf(a);
+      const ib = ROUND_ORDER.indexOf(b);
 
       if (ia === -1 && ib === -1) return a.localeCompare(b);
       if (ia === -1) return 1;
@@ -244,6 +333,46 @@ export default function TournamentDetail() {
     () => sortedRounds.filter((roundName) => !configuredRoundNames.includes(roundName)),
     [configuredRoundNames, sortedRounds]
   );
+  const canManageTournament = isAdmin || isManager || canManageByProfile;
+
+  const tournamentType: "league" | "cup" =
+    tournament?.tournament_type === "cup" ? "cup" : "league";
+  const leagueMode =
+    tournament?.league_mode === "double_leg" ? "double_leg" : "single_leg";
+  const isCupTournament = tournamentType === "cup";
+
+  const cupPhaseOrder = useMemo(() => {
+    const phases = Object.keys(matchesByRound)
+      .map((roundName) => extractCupPhase(roundName))
+      .filter((phase): phase is string => Boolean(phase));
+
+    const unique = [...new Set(phases)];
+    return unique.sort((a, b) => {
+      const parseSize = (value: string) => {
+        const normalized = value.toLowerCase();
+        if (normalized === "final") return 2;
+        if (normalized === "semifinal") return 4;
+        if (normalized === "cuartos") return 8;
+        if (normalized === "octavos") return 16;
+        if (normalized === "dieciseisavos") return 32;
+        const dynamic = normalized.match(/ronda\\s+de\\s+(\\d+)/i);
+        const parsed = dynamic ? Number(dynamic[1]) : NaN;
+        return Number.isFinite(parsed) ? parsed : 999;
+      };
+      return parseSize(b) - parseSize(a);
+    });
+  }, [matchesByRound]);
+
+  const cupMatchesByPhase = useMemo(() => {
+    const map: Record<string, Match[]> = {};
+    Object.entries(matchesByRound).forEach(([roundName, roundMatches]) => {
+      const phase = extractCupPhase(roundName);
+      if (!phase) return;
+      if (!map[phase]) map[phase] = [];
+      map[phase].push(...roundMatches);
+    });
+    return map;
+  }, [matchesByRound]);
 
   if (loading) {
     return (
@@ -283,16 +412,24 @@ export default function TournamentDetail() {
 
             {/* Badge simple usando SOLO prop label */}
             <div className="flex items-center md:items-end justify-start md:justify-end">
-              <Badge label={t("tournaments.bracket")} />
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Badge label={TOURNAMENT_TYPE_LABEL[tournamentType]} />
+                {isCupTournament ? (
+                  <Badge label="Llaves" />
+                ) : (
+                  <Badge label={LEAGUE_MODE_LABEL[leagueMode]} />
+                )}
+              </div>
             </div>
           </div>
 
-          {!roleLoading && (isAdmin || isManager) && (
+          {(!roleLoading || canManageByProfile) && canManageTournament && (
             <div className="flex flex-wrap gap-2 mt-3">
               <button
                 type="button"
                 onClick={() => router.push(`/tournaments/edit/${idNum}`)}
-                className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-gray-800 transition"
+                className="bg-gray-900 !text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-gray-800 transition"
+                style={{ WebkitTextFillColor: "#fff" }}
               >
                 Editar torneo
               </button>
@@ -300,12 +437,91 @@ export default function TournamentDetail() {
           )}
         </section>
 
-        {/* Cuadro por rondas */}
+        {/* Cuadro por rondas / llaves */}
         <section className="space-y-6">
-          {tournamentRounds.length === 0 && sortedRounds.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              {t("tournaments.noMatchesYet")}
-            </p>
+          {isCupTournament ? (
+            <>
+              {(!roleLoading || canManageByProfile) && canManageTournament && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/matches/create/manual?tournament=${idNum}`)}
+                    className="bg-green-600 !text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-green-700 transition"
+                    style={{ WebkitTextFillColor: "#fff" }}
+                  >
+                    + Crear partido
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/tournaments/${idNum}/generate-matches`)}
+                    className="bg-indigo-600 !text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-indigo-700 transition"
+                    style={{ WebkitTextFillColor: "#fff" }}
+                  >
+                    Gestionar llaves
+                  </button>
+                </div>
+              )}
+
+              {cupPhaseOrder.length === 0 ? (
+                <p className="text-sm text-gray-500">{t("tournaments.noMatchesYet")}</p>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:p-4 overflow-x-auto">
+                  <div className="flex items-start gap-4 min-w-max">
+                    {cupPhaseOrder.map((phaseName) => {
+                      const phaseMatches = cupMatchesByPhase[phaseName] || [];
+                      return (
+                        <div key={phaseName} className="w-[300px]">
+                          <div className="rounded-xl bg-slate-900 text-white px-4 py-2 mb-3 text-sm font-semibold text-center">
+                            {translateRoundName(phaseName)}
+                          </div>
+
+                          <div className="space-y-3">
+                            {phaseMatches.length === 0 ? (
+                              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-500 text-center">
+                                Sin cruces cargados
+                              </div>
+                            ) : (
+                              phaseMatches.map((m) => {
+                                const teamA = buildTeamName(m.player_1_a, m.player_2_a);
+                                const teamB = buildTeamName(m.player_1_b, m.player_2_b);
+                                const played = isPlayed(m);
+                                return (
+                                  <div
+                                    key={m.id}
+                                    onClick={() => {
+                                      if (!played) return;
+                                      setOpenResultMatch(m);
+                                    }}
+                                    className={`rounded-xl border bg-white p-3 ${
+                                      played ? "cursor-pointer hover:shadow-sm" : "cursor-default"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+                                      <span>{formatMatchDate(m.start_time)}</span>
+                                      {m.score && <span className="font-semibold text-slate-800">{m.score}</span>}
+                                    </div>
+                                    <div className="space-y-2 text-sm">
+                                      <p className={m.winner === "A" ? "font-semibold text-emerald-700" : "text-slate-800"}>
+                                        {teamA}
+                                      </p>
+                                      <p className={m.winner === "B" ? "font-semibold text-emerald-700" : "text-slate-800"}>
+                                        {teamB}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : tournamentRounds.length === 0 && sortedRounds.length === 0 ? (
+            <p className="text-sm text-gray-500">{t("tournaments.noMatchesYet")}</p>
           ) : (
             <>
               {tournamentRounds.map((round) => {
@@ -321,7 +537,7 @@ export default function TournamentDetail() {
                       </span>
                     </div>
 
-                    {!roleLoading && (isAdmin || isManager) && (
+                    {(!roleLoading || canManageByProfile) && canManageTournament && (
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -330,7 +546,8 @@ export default function TournamentDetail() {
                               `/matches/create/manual?tournament=${idNum}&round_id=${round.id}`
                             )
                           }
-                          className="bg-green-600 text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-green-700 transition"
+                          className="bg-green-600 !text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-green-700 transition"
+                          style={{ WebkitTextFillColor: "#fff" }}
                         >
                           + Crear partido
                         </button>
@@ -341,7 +558,8 @@ export default function TournamentDetail() {
                               `/tournaments/${idNum}/generate-matches?round_id=${round.id}`
                             )
                           }
-                          className="bg-indigo-600 text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-indigo-700 transition"
+                          className="bg-indigo-600 !text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-indigo-700 transition"
+                          style={{ WebkitTextFillColor: "#fff" }}
                         >
                           Crear partidos aleatorios
                         </button>
@@ -470,15 +688,12 @@ export default function TournamentDetail() {
                   }}
                 >
                   <div style={{ textAlign: "center" }}>
-                    <img
+                    <Image
                       src="/logo.svg"
-                      alt="PADELX DEMO"
-                      style={{
-                        height: 44,
-                        width: "auto",
-                        margin: "0 auto",
-                        objectFit: "contain",
-                      }}
+                      alt="PADELX QA"
+                      width={140}
+                      height={44}
+                      style={{ margin: "0 auto", objectFit: "contain" }}
                     />
                   </div>
 
@@ -603,7 +818,7 @@ export default function TournamentDetail() {
                         height: 520,
                       });
                       const link = document.createElement("a");
-                      link.download = `PadelXDemo_Partido_${m.id}.png`;
+                      link.download = `PadelXQA_Partido_${m.id}.png`;
                       link.href = dataUrl;
                       link.click();
                       toast.success(t("matches.imageDownloaded"));
