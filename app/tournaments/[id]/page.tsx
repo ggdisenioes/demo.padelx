@@ -49,9 +49,9 @@ type TournamentDetailCachePayload = {
 const TOURNAMENT_DETAIL_CACHE_KEY_PREFIX = "padelx:tournament:detail:v1:";
 const TOURNAMENT_DETAIL_CACHE_TTL_MS = 90 * 1000;
 const ROUND_ORDER = ["Fase de Grupos", "Octavos", "Cuartos", "Semifinal", "Final"];
-const BRACKET_CARD_HEIGHT_PX = 124;
-const BRACKET_BASE_GAP_PX = 14;
-const BRACKET_CONNECTOR_PX = 20;
+const BRACKET_CARD_HEIGHT_PX = 112;
+const BRACKET_BASE_GAP_PX = 12;
+const BRACKET_CONNECTOR_PX = 12;
 
 type CupBracketSlot = {
   key: string;
@@ -464,7 +464,7 @@ export default function TournamentDetail() {
   const renderCupSlotCard = (slot: CupBracketSlot) => {
     if (!slot.match) {
       return (
-        <div className="h-[124px] rounded-xl border border-dashed border-slate-300 bg-white/70 px-3 py-2 flex items-center justify-center text-xs text-slate-400">
+        <div className="h-[112px] rounded-xl border border-dashed border-slate-300 bg-white/70 px-2 py-2 flex items-center justify-center text-[11px] text-slate-400 text-center">
           Pendiente de definir
         </div>
       );
@@ -480,7 +480,7 @@ export default function TournamentDetail() {
       <button
         type="button"
         onClick={() => openPlayedMatch(m)}
-        className={`h-[124px] w-full rounded-xl border bg-white px-3 py-2 text-left transition ${
+        className={`h-[112px] w-full rounded-xl border bg-white px-2 py-2 text-left transition ${
           played ? "border-slate-300 hover:shadow-sm" : "border-slate-200"
         }`}
       >
@@ -489,7 +489,7 @@ export default function TournamentDetail() {
           <span className="font-semibold text-slate-700">{score || "-"}</span>
         </div>
 
-        <div className="space-y-1 text-sm leading-tight">
+        <div className="space-y-1 text-[13px] leading-tight">
           <p className={m.winner === "A" ? "font-semibold text-emerald-700 truncate" : "text-slate-700 truncate"}>
             {teamA}
           </p>
@@ -592,21 +592,31 @@ export default function TournamentDetail() {
               {cupBracketRounds.length === 0 ? (
                 <p className="text-sm text-gray-500">{t("tournaments.noMatchesYet")}</p>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:p-4 overflow-x-auto">
-                  <div
-                    className="flex items-stretch justify-center gap-8 min-w-max px-2 py-2"
-                    style={{
-                      minWidth: `${Math.max(960, 560 + cupSideRounds.length * 520)}px`,
-                    }}
-                  >
-                    <div className="flex items-start gap-8">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:p-4 overflow-hidden">
+                  <div className="space-y-4 lg:hidden">
+                    {cupBracketRounds.map((round) => (
+                      <div key={`stack-${round.phaseName}`} className="space-y-2">
+                        <div className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm font-semibold text-center">
+                          {translateRoundName(round.phaseName)}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {round.slots.map((slot) => (
+                            <div key={`stack-slot-${slot.key}`}>{renderCupSlotCard(slot)}</div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden lg:flex items-stretch justify-center gap-3 px-1 py-2 w-full">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
                       {cupSideRounds.map((round) => {
                         const gap = getBracketRoundGap(round.roundDepth);
                         const stride = BRACKET_CARD_HEIGHT_PX + gap;
                         const pairCount = Math.floor(round.leftSlots.length / 2);
                         return (
-                          <div key={`left-${round.phaseName}`} className="w-[250px] shrink-0">
-                            <div className="rounded-xl bg-slate-900 text-white px-3 py-2 mb-3 text-sm font-semibold text-center">
+                          <div key={`left-${round.phaseName}`} className="min-w-0 flex-1">
+                            <div className="rounded-xl bg-slate-900 text-white px-2 py-2 mb-3 text-xs xl:text-sm font-semibold text-center">
                               {translateRoundName(round.phaseName)}
                             </div>
                             <div
@@ -617,7 +627,13 @@ export default function TournamentDetail() {
                                 {round.leftSlots.map((slot) => (
                                   <div key={slot.key} className="relative">
                                     {renderCupSlotCard(slot)}
-                                    <span className="absolute top-1/2 -translate-y-1/2 -right-[20px] w-[20px] border-t-2 border-slate-300" />
+                                    <span
+                                      className="absolute top-1/2 -translate-y-1/2 border-t-2 border-slate-300"
+                                      style={{
+                                        right: `-${BRACKET_CONNECTOR_PX}px`,
+                                        width: `${BRACKET_CONNECTOR_PX}px`,
+                                      }}
+                                    />
                                   </div>
                                 ))}
                               </div>
@@ -654,31 +670,37 @@ export default function TournamentDetail() {
                       })}
                     </div>
 
-                    <div className="w-[260px] shrink-0 flex flex-col items-center justify-center">
-                      <div className="rounded-xl bg-slate-900 text-white px-3 py-2 mb-3 text-sm font-semibold text-center w-full">
+                    <div className="w-[160px] xl:w-[180px] shrink-0 flex flex-col items-center justify-center">
+                      <div className="rounded-xl bg-slate-900 text-white px-2 py-2 mb-3 text-xs xl:text-sm font-semibold text-center w-full">
                         {translateRoundName(cupFinalRound?.phaseName || "Final")}
                       </div>
                       {cupFinalRound?.slots[0] ? (
                         <div className="relative w-full">
-                          <span className="absolute top-1/2 -translate-y-1/2 -left-[20px] w-[20px] border-t-2 border-slate-300" />
-                          <span className="absolute top-1/2 -translate-y-1/2 -right-[20px] w-[20px] border-t-2 border-slate-300" />
+                          <span
+                            className="absolute top-1/2 -translate-y-1/2 border-t-2 border-slate-300"
+                            style={{ left: `-${BRACKET_CONNECTOR_PX}px`, width: `${BRACKET_CONNECTOR_PX}px` }}
+                          />
+                          <span
+                            className="absolute top-1/2 -translate-y-1/2 border-t-2 border-slate-300"
+                            style={{ right: `-${BRACKET_CONNECTOR_PX}px`, width: `${BRACKET_CONNECTOR_PX}px` }}
+                          />
                           {renderCupSlotCard(cupFinalRound.slots[0])}
                         </div>
                       ) : (
-                        <div className="w-full h-[124px] rounded-xl border border-dashed border-slate-300 bg-white/70 px-3 py-2 flex items-center justify-center text-xs text-slate-400">
+                        <div className="w-full h-[112px] rounded-xl border border-dashed border-slate-300 bg-white/70 px-2 py-2 flex items-center justify-center text-[11px] text-slate-400 text-center">
                           Final pendiente
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-start gap-8">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
                       {rightCupSideRounds.map((round) => {
                         const gap = getBracketRoundGap(round.roundDepth);
                         const stride = BRACKET_CARD_HEIGHT_PX + gap;
                         const pairCount = Math.floor(round.rightSlots.length / 2);
                         return (
-                          <div key={`right-${round.phaseName}`} className="w-[250px] shrink-0">
-                            <div className="rounded-xl bg-slate-900 text-white px-3 py-2 mb-3 text-sm font-semibold text-center">
+                          <div key={`right-${round.phaseName}`} className="min-w-0 flex-1">
+                            <div className="rounded-xl bg-slate-900 text-white px-2 py-2 mb-3 text-xs xl:text-sm font-semibold text-center">
                               {translateRoundName(round.phaseName)}
                             </div>
                             <div
@@ -689,7 +711,13 @@ export default function TournamentDetail() {
                                 {round.rightSlots.map((slot) => (
                                   <div key={slot.key} className="relative">
                                     {renderCupSlotCard(slot)}
-                                    <span className="absolute top-1/2 -translate-y-1/2 -left-[20px] w-[20px] border-t-2 border-slate-300" />
+                                    <span
+                                      className="absolute top-1/2 -translate-y-1/2 border-t-2 border-slate-300"
+                                      style={{
+                                        left: `-${BRACKET_CONNECTOR_PX}px`,
+                                        width: `${BRACKET_CONNECTOR_PX}px`,
+                                      }}
+                                    />
                                   </div>
                                 ))}
                               </div>
