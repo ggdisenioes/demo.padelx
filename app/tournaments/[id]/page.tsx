@@ -17,6 +17,7 @@ import {
   LEAGUE_MODE_LABEL,
   TOURNAMENT_TYPE_LABEL,
   extractCupPhase,
+  getCupPhaseName,
 } from "../../lib/tournamentFormats";
 
 type Tournament = {
@@ -105,6 +106,14 @@ function getBracketRoundGap(roundDepth: number) {
   return stride * 2 ** roundDepth - BRACKET_CARD_HEIGHT_PX;
 }
 
+function getNextCupPhaseName(currentPhase: string) {
+  const currentSize = getCupPhaseSize(currentPhase);
+  if (!Number.isFinite(currentSize) || currentSize <= 2 || currentSize === Number.MAX_SAFE_INTEGER) {
+    return null;
+  }
+  return getCupPhaseName(Math.max(2, Math.floor(currentSize / 2)));
+}
+
 export default function TournamentDetail() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -121,8 +130,11 @@ export default function TournamentDetail() {
   const [canManageByProfile, setCanManageByProfile] = useState(false);
   const [openResultMatch, setOpenResultMatch] = useState<Match | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAutoAdvancingCup, setIsAutoAdvancingCup] = useState(false);
   const shareCardRef = useRef<HTMLDivElement | null>(null);
+  const lastAutoAdvanceSignatureRef = useRef<string>("");
   const dateLocale = locale === "en" ? "en-US" : "es-ES";
+  const cacheKey = `${TOURNAMENT_DETAIL_CACHE_KEY_PREFIX}${idNum}`;
 
   // Cargar torneo + partidos + jugadores
   useEffect(() => {
@@ -133,7 +145,6 @@ export default function TournamentDetail() {
     }
 
     const load = async () => {
-      const cacheKey = `${TOURNAMENT_DETAIL_CACHE_KEY_PREFIX}${idNum}`;
       const cached = getClientCache<TournamentDetailCachePayload>(
         cacheKey,
         TOURNAMENT_DETAIL_CACHE_TTL_MS
@@ -274,7 +285,7 @@ export default function TournamentDetail() {
     };
 
     load();
-  }, [id, idNum, router, t]);
+  }, [cacheKey, id, idNum, router, t]);
 
 
   const formatDate = (iso: string | null) => {
@@ -448,6 +459,159 @@ export default function TournamentDetail() {
   }, [cupBracketRounds]);
 
   const rightCupSideRounds = useMemo(() => [...cupSideRounds].reverse(), [cupSideRounds]);
+
+  useEffect(() => {
+    if (!isCupTournament || !canManageTournament || loading || isAutoAdvancingCup) return;
+    if (matches.length === 0) return;
+
+    const signature = matches
+      .map((m) => `${m.id}:${m.round_name || ""}:${m.winner || ""}:${m.score || ""}`)
+      .join("|");
+    if (lastAutoAdvanceSignatureRef.current === signature) return;
+    lastAutoAdvanceSignatureRef.current = signature;
+
+    let cancelled = false;
+
+    const autoAdvanceCup = async () => {
+      const byPhase = new Map<string, Match[]>();
+      matches.forEach((match) => {
+        const phase = extractCupPhase(match.round_name);
+        if (!phase) return;
+        if (!byPhase.has(phase)) byPhase.set(phase, []);
+        byPhase.get(phase)!.push(match);
+      });
+
+      const phaseNames = [...byPhase.keys()].sort(
+        (a, b) => getCupPhaseSize(b) - getCupPhaseSize(a)
+      );
+      if (phaseNames.length === 0) return;
+
+      const candidatePhase = phaseNames.find((phase) => {
+        const phaseMatches = byPhase.get(phase) || [];
+        const completed =
+          phaseMatches.length > 0 &&
+          phaseMatches.every((m) => {
+            const winner = String(m.winner || "").toUpperCase();
+            return winner === "A" || winner === "B";
+          });
+        if (!completed) return false;
+
+        const next = getNextCupPhaseName(phase);
+        if (!next) return false;
+        return !byPhase.has(next);
+      });
+
+      if (!candidatePhase) return;
+
+      const nextPhase = getNextCupPhaseName(candidatePhase);
+      if (!nextPhase) return;
+
+      const completedPhaseMatches = [...(byPhase.get(candidatePhase) || [])].sort(
+        sortMatchesForBracket
+      );
+      if (completedPhaseMatches.length === 0) return;
+
+      const winners: Array<{ a: number; b: number }> = [];
+      completedPhaseMatches.forEach((match) => {
+        const winner = String(match.winner || "").toUpperCase();
+        if (winner === "A") {
+          const a = Number(match.player_1_a);
+          const b = Number(match.player_2_a);
+          if (Number.isFinite(a) && Number.isFinite(b)) winners.push({ a, b });
+          return;
+        }
+        if (winner === "B") {
+          const a = Number(match.player_1_b);
+          const b = Number(match.player_2_b);
+          if (Number.isFinite(a) && Number.isFinite(b)) winners.push({ a, b });
+        }
+      });
+
+      if (winners.length < 2 || winners.length % 2 !== 0) return;
+
+      const latestStart = completedPhaseMatches.reduce((max, match) => {
+        const value = match.start_time ? new Date(match.start_time).getTime() : Number.NaN;
+        if (!Number.isFinite(value)) return max;
+        return Math.max(max, value);
+      }, Date.now());
+
+      const baseStart = new Date(latestStart);
+      baseStart.setDate(baseStart.getDate() + 7);
+
+      const nextMatchesPayload = [];
+      for (let i = 0; i < winners.length / 2; i += 1) {
+        const teamA = winners[i];
+        const teamB = winners[winners.length - 1 - i];
+        const startAt = new Date(baseStart);
+        startAt.setMinutes(startAt.getMinutes() + i * 5);
+
+        nextMatchesPayload.push({
+          tournament_id: idNum,
+          round_name: nextPhase,
+          player_1_a: teamA.a,
+          player_2_a: teamA.b,
+          player_1_b: teamB.a,
+          player_2_b: teamB.b,
+          start_time: startAt.toISOString(),
+          score: null,
+          winner: null,
+          place: null,
+        });
+      }
+
+      if (nextMatchesPayload.length === 0) return;
+
+      setIsAutoAdvancingCup(true);
+      try {
+        const { data: inserted, error } = await supabase
+          .from("matches")
+          .insert(nextMatchesPayload)
+          .select(
+            "id, start_time, round_name, place, court, score, winner, player_1_a, player_2_a, player_1_b, player_2_b"
+          )
+          .returns<Match[]>();
+
+        if (error) {
+          console.error("[cup:auto-advance] error creating next phase:", error);
+          return;
+        }
+
+        if (cancelled || !inserted || inserted.length === 0) return;
+
+        setMatches((prev) => {
+          const next = [...prev, ...inserted].sort(sortMatchesForBracket);
+          setClientCache<TournamentDetailCachePayload>(cacheKey, {
+            tournament,
+            matches: next,
+            tournamentRounds,
+            playersMap,
+          });
+          return next;
+        });
+
+        toast.success(`Llave actualizada: fase ${nextPhase} creada automáticamente.`);
+      } finally {
+        if (!cancelled) setIsAutoAdvancingCup(false);
+      }
+    };
+
+    void autoAdvanceCup();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cacheKey,
+    canManageTournament,
+    idNum,
+    isAutoAdvancingCup,
+    isCupTournament,
+    loading,
+    matches,
+    playersMap,
+    tournament,
+    tournamentRounds,
+  ]);
 
   const noResultMessage =
     locale === "en" ? "This match has no result yet." : "Este partido todavia no tiene resultado.";
