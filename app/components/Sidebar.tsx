@@ -136,7 +136,6 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
     { id: "matches", label: t("nav.matches"), href: "/matches", emoji: "🎾" },
     { id: "ranking", label: t("nav.ranking"), href: "/ranking", emoji: "⭐" },
     { id: "news", label: t("nav.news"), href: "/news", emoji: "📰" },
-    { id: "challenges", label: t("nav.challenges"), href: "/challenges", emoji: "⚔️" },
     { id: "mi-cuenta", label: t("nav.myAccount"), href: "/mi-cuenta", emoji: "👤" },
   ];
 
