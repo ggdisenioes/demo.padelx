@@ -2,18 +2,27 @@
 
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
 import Card from '../../components/Card';
 import toast from 'react-hot-toast';
 import { useTenantPlan } from '../../hooks/useTenantPlan';
+import { useRole } from '../../hooks/useRole';
+import { useTranslation } from '../../i18n';
+
+type CreatePlayerResponse = {
+  error?: string;
+};
 
 export default function CreatePlayer() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const { isAdmin, isManager, loading: roleLoading } = useRole();
   const { loading: planLoading, plan, canCreatePlayer, usage } = useTenantPlan();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const canManagePlayers = isAdmin || isManager;
   
   const [formData, setFormData] = useState({
     name: '',
@@ -22,8 +31,21 @@ export default function CreatePlayer() {
     avatar_url: ''
   });
 
+  useEffect(() => {
+    if (roleLoading) return;
+    if (!canManagePlayers) {
+      toast.error(t("players.onlyAdminManagerCanCreate"));
+      router.replace("/players");
+    }
+  }, [canManagePlayers, roleLoading, router, t]);
+
   // Función para subir la imagen
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canManagePlayers) {
+      toast.error(t("players.onlyAdminManagerCanCreate"));
+      return;
+    }
+
     try {
       setUploading(true);
       if (!e.target.files || e.target.files.length === 0) {
@@ -51,9 +73,10 @@ export default function CreatePlayer() {
       setFormData({ ...formData, avatar_url: data.publicUrl });
       toast.success('Imagen subida correctamente.');
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Usar toast en lugar de alert
-      toast.error('Error subiendo imagen: ' + error.message); 
+      const message = error instanceof Error ? error.message : 'Error desconocido';
+      toast.error('Error subiendo imagen: ' + message);
     } finally {
       setUploading(false);
     }
@@ -62,23 +85,42 @@ export default function CreatePlayer() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!canManagePlayers) {
+      toast.error(t("players.onlyAdminManagerCanCreate"));
+      router.replace("/players");
+      return;
+    }
+
     if (!canCreatePlayer) {
       toast.error(`Limite de jugadores alcanzado (${usage.playerCount}/${plan?.max_players}). Actualiza tu plan.`);
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase
-      .from('players')
-      .insert([{
-        ...formData,
-        is_approved: false, // Explicitamos que requiere aprobación
-      }]);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (error) {
-      const msg = error.message?.includes('PLAN_LIMIT')
-        ? error.message.replace('PLAN_LIMIT: ', '')
-        : 'Error al guardar el jugador: ' + error.message;
+    if (!session?.access_token) {
+      toast.error(t("auth.loginRequired"));
+      setLoading(false);
+      router.replace("/login");
+      return;
+    }
+
+    const response = await fetch("/api/players/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(formData),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as CreatePlayerResponse;
+
+    if (!response.ok) {
+      const msg = payload.error || 'Error al guardar el jugador.';
       toast.error(msg);
       setLoading(false);
     } else {
@@ -89,6 +131,16 @@ export default function CreatePlayer() {
     }
     setLoading(false);
   };
+
+  if (roleLoading || !canManagePlayers) {
+    return (
+      <main className="flex-1 overflow-y-auto p-8">
+        <Card className="max-w-xl mx-auto text-center">
+          <p className="text-gray-600">{roleLoading ? t("common.loading") : t("players.onlyAdminManagerCanCreate")}</p>
+        </Card>
+      </main>
+    );
+  }
 
   return (
     <main className="flex-1 overflow-y-auto p-8">

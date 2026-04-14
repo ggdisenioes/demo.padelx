@@ -300,7 +300,8 @@
     "restoreConfirm": "¿Restaurar a {{name}}?",
     "restored": "{{name}} fue restaurado.",
     "errorRestoring": "Error al restaurar jugador.",
-    "onlyAdminCanArchive": "Solo un admin puede eliminar o restaurar jugadores."
+    "onlyAdminCanArchive": "Solo un admin puede eliminar o restaurar jugadores.",
+    "onlyAdminManagerCanCreate": "Solo un admin o manager puede crear jugadores."
   },
   "matches": {
     "title": "Partidos",

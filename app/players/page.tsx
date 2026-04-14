@@ -31,7 +31,7 @@ const logAction = async ({
   action: string;
   entity: string;
   entityId?: number;
-  metadata?: any;
+  metadata?: Record<string, unknown>;
 }) => {
   const {
     data: { user },
@@ -77,6 +77,7 @@ export default function PlayersPage() {
   const [search, setSearch] = useState("");
 
   const { role, isAdmin, isManager, loading: roleLoading } = useRole();
+  const canCreatePlayer = isAdmin || isManager;
 
   const fetchPlayers = useCallback(async () => {
     setLoading(true);
@@ -101,7 +102,10 @@ export default function PlayersPage() {
 
   useEffect(() => {
     if (roleLoading) return;
-    void fetchPlayers();
+    const timeoutId = window.setTimeout(() => {
+      void fetchPlayers();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [fetchPlayers, roleLoading, role]);
 
   useEffect(() => {
@@ -321,12 +325,14 @@ export default function PlayersPage() {
             placeholder={t("players.searchPlaceholder")}
             className="w-full sm:w-64 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#007bff]"
           />
-          <Link
-            href="/players/create"
-            className="bg-[#007bff] text-white px-4 py-2 rounded-lg hover:bg-[#0056b3] transition shadow-sm font-bold flex justify-center items-center gap-2 whitespace-nowrap"
-          >
-            <span>+</span> {t("players.create")}
-          </Link>
+          {canCreatePlayer && (
+            <Link
+              href="/players/create"
+              className="bg-[#007bff] text-white px-4 py-2 rounded-lg hover:bg-[#0056b3] transition shadow-sm font-bold flex justify-center items-center gap-2 whitespace-nowrap"
+            >
+              <span>+</span> {t("players.create")}
+            </Link>
+          )}
         </div>
       </div>
 

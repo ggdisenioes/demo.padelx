@@ -300,7 +300,8 @@
     "restoreConfirm": "Restore {{name}}?",
     "restored": "{{name}} was restored.",
     "errorRestoring": "Error restoring player.",
-    "onlyAdminCanArchive": "Only an admin can archive or restore players."
+    "onlyAdminCanArchive": "Only an admin can archive or restore players.",
+    "onlyAdminManagerCanCreate": "Only an admin or manager can create players."
   },
   "matches": {
     "title": "Matches",
