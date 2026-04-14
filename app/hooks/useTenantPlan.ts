@@ -34,6 +34,25 @@ type TenantPlanResult = {
   hasFeature: (key: string) => boolean;
 };
 
+type TenantPlanData = Pick<
+  TenantPlanResult,
+  "plan" | "addonSlugs" | "usage" | "canCreatePlayer" | "canCreateTournament"
+>;
+
+type TenantPlanCache = {
+  userId: string;
+  data: Omit<TenantPlanData, "canCreatePlayer" | "canCreateTournament">;
+  expiresAt: number;
+};
+
+type TenantPlanJoin = {
+  subscription_plans: PlanInfo | PlanInfo[] | null;
+};
+
+type TenantAddonJoin = {
+  addons: { slug: string | null } | Array<{ slug: string | null }> | null;
+};
+
 const PLAN_BOOLEAN_KEYS = [
   "has_advanced_rankings",
   "has_player_stats",
@@ -46,24 +65,51 @@ const PLAN_BOOLEAN_KEYS = [
   "has_integrations",
 ] as const;
 
+const TENANT_PLAN_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let tenantPlanCache: TenantPlanCache | null = null;
+let tenantPlanLoadPromise: Promise<TenantPlanCache["data"]> | null = null;
+
+function getJoinedSingle<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function buildResultData(
+  plan: PlanInfo | null,
+  addonSlugs: string[],
+  usage: TenantPlanResult["usage"]
+): TenantPlanCache["data"] {
+  return { plan, addonSlugs, usage };
+}
+
 export function useTenantPlan(): TenantPlanResult {
-  const [loading, setLoading] = useState(true);
-  const [plan, setPlan] = useState<PlanInfo | null>(null);
-  const [addonSlugs, setAddonSlugs] = useState<string[]>([]);
-  const [usage, setUsage] = useState({ playerCount: 0, activeTournamentCount: 0 });
+  const cached = tenantPlanCache?.data ?? null;
+  const [loading, setLoading] = useState(!cached);
+  const [plan, setPlan] = useState<PlanInfo | null>(cached?.plan ?? null);
+  const [addonSlugs, setAddonSlugs] = useState<string[]>(cached?.addonSlugs ?? []);
+  const [usage, setUsage] = useState(
+    cached?.usage ?? { playerCount: 0, activeTournamentCount: 0 }
+  );
 
   useEffect(() => {
     let active = true;
 
-    const load = async () => {
+    const resolveTenantPlan = async () => {
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
         if (!session?.user?.id) {
-          if (active) setLoading(false);
-          return;
+          tenantPlanCache = null;
+          return buildResultData(null, [], { playerCount: 0, activeTournamentCount: 0 });
+        }
+
+        if (
+          tenantPlanCache?.userId === session.user.id &&
+          tenantPlanCache.expiresAt > Date.now()
+        ) {
+          return tenantPlanCache.data;
         }
 
         // 1) Get tenant_id from profile
@@ -74,8 +120,7 @@ export function useTenantPlan(): TenantPlanResult {
           .single();
 
         if (!profile?.tenant_id) {
-          if (active) setLoading(false);
-          return;
+          return buildResultData(null, [], { playerCount: 0, activeTournamentCount: 0 });
         }
 
         const tenantId = profile.tenant_id;
@@ -87,7 +132,7 @@ export function useTenantPlan(): TenantPlanResult {
           .eq("id", tenantId)
           .single();
 
-        const planData = tenant?.subscription_plans as PlanInfo | null;
+        const planData = getJoinedSingle((tenant as TenantPlanJoin | null)?.subscription_plans);
 
         // 3) Get active addon slugs
         const { data: addonsData } = await supabase
@@ -95,9 +140,9 @@ export function useTenantPlan(): TenantPlanResult {
           .select("addon_id, addons(slug)")
           .eq("tenant_id", tenantId);
 
-        const slugs = (addonsData || [])
-          .map((ta: any) => ta.addons?.slug)
-          .filter(Boolean) as string[];
+        const slugs = ((addonsData || []) as TenantAddonJoin[])
+          .map((ta) => getJoinedSingle(ta.addons)?.slug)
+          .filter((slug): slug is string => Boolean(slug));
 
         // 4) Live counts
         const [playersRes, tournamentsRes] = await Promise.all([
@@ -112,19 +157,38 @@ export function useTenantPlan(): TenantPlanResult {
             .in("status", ["open", "ongoing"]),
         ]);
 
-        if (active) {
-          setPlan(planData || null);
-          setAddonSlugs(slugs);
-          setUsage({
-            playerCount: playersRes.count || 0,
-            activeTournamentCount: tournamentsRes.count || 0,
-          });
-          setLoading(false);
-        }
+        const data = buildResultData(planData || null, slugs, {
+          playerCount: playersRes.count || 0,
+          activeTournamentCount: tournamentsRes.count || 0,
+        });
+
+        tenantPlanCache = {
+          userId: session.user.id,
+          data,
+          expiresAt: Date.now() + TENANT_PLAN_CACHE_TTL_MS,
+        };
+
+        return data;
       } catch (err) {
         console.error("[useTenantPlan] error:", err);
-        if (active) setLoading(false);
+        return buildResultData(null, [], { playerCount: 0, activeTournamentCount: 0 });
       }
+    };
+
+    const load = async () => {
+      if (!tenantPlanLoadPromise) {
+        tenantPlanLoadPromise = resolveTenantPlan().finally(() => {
+          tenantPlanLoadPromise = null;
+        });
+      }
+
+      const result = await tenantPlanLoadPromise;
+      if (!active) return;
+
+      setPlan(result.plan);
+      setAddonSlugs(result.addonSlugs);
+      setUsage(result.usage);
+      setLoading(false);
     };
 
     load();
@@ -141,8 +205,8 @@ export function useTenantPlan(): TenantPlanResult {
     // If no plan, allow everything (trial/no restrictions)
     if (!plan) return true;
     // Check plan boolean flags
-    if (PLAN_BOOLEAN_KEYS.includes(key as any)) {
-      return !!(plan as any)[key];
+    if (PLAN_BOOLEAN_KEYS.includes(key as (typeof PLAN_BOOLEAN_KEYS)[number])) {
+      return Boolean(plan[key as (typeof PLAN_BOOLEAN_KEYS)[number]]);
     }
     // Check addon slugs
     return addonSlugs.includes(key);

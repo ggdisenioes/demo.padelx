@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef } from "react";
-import { toPng } from "html-to-image";
 import MatchShareCard from "./MatchShareCard";
 import { useTranslation } from "@/i18n";
 
@@ -31,6 +30,7 @@ export default function MatchResultModal({
 
   const handleDownload = async () => {
     if (!cardRef.current) return;
+    const { toPng } = await import("html-to-image");
     const dataUrl = await toPng(cardRef.current, {
       cacheBust: true,
       pixelRatio: 2,

@@ -1,5 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    optimizePackageImports: [
+      "@heroicons/react",
+      "lucide-react",
+      "@simplewebauthn/browser",
+      "@simplewebauthn/server",
+    ],
+  },
+
   // Mantenemos la optimización de imágenes
   images: {
     unoptimized: true,

@@ -20,6 +20,35 @@ type TokenClaims = {
   };
 };
 
+const ROLE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type RoleCache = {
+  userId: string;
+  role: UserRole;
+  expiresAt: number;
+};
+
+let roleCache: RoleCache | null = null;
+let roleLoadPromise: Promise<UserRole> | null = null;
+
+function getCachedRole() {
+  if (!roleCache || roleCache.expiresAt <= Date.now()) return null;
+  return roleCache.role;
+}
+
+function setCachedRole(userId: string, role: UserRole) {
+  roleCache = {
+    userId,
+    role,
+    expiresAt: Date.now() + ROLE_CACHE_TTL_MS,
+  };
+}
+
+export function clearRoleCache() {
+  roleCache = null;
+  roleLoadPromise = null;
+}
+
 function decodeJwtPayload<T = unknown>(token: string): T | null {
   try {
     const parts = token.split(".");
@@ -48,95 +77,112 @@ function normalizeRole(value: unknown): UserRole | null {
   return null;
 }
 
+async function resolveRole(): Promise<UserRole> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user?.id) {
+    clearRoleCache();
+    return "user";
+  }
+
+  const token = session.access_token;
+  const claims = token ? decodeJwtPayload<TokenClaims>(token) : null;
+  const roleFromToken =
+    claims?.role ??
+    claims?.user_role ??
+    claims?.app_metadata?.role ??
+    claims?.app_metadata?.user_role;
+
+  const activeFromToken =
+    claims?.active ??
+    claims?.user_active ??
+    claims?.app_metadata?.active ??
+    claims?.app_metadata?.user_active;
+
+  if (activeFromToken === false) {
+    console.warn("[useRole] inactive user (JWT claim), signing out", session.user.id);
+    toast.error("Tu cuenta fue desactivada. Contacta al administrador.");
+    clearRoleCache();
+    await supabase.auth.signOut();
+    try {
+      sessionStorage.setItem("auth_disabled", "1");
+    } catch {}
+    if (typeof window !== "undefined") {
+      window.location.href = "/login?disabled=1";
+    }
+    return "user";
+  }
+
+  const normalizedTokenRole = normalizeRole(roleFromToken);
+  if (normalizedTokenRole && normalizedTokenRole !== "user") {
+    setCachedRole(session.user.id, normalizedTokenRole);
+    return normalizedTokenRole;
+  }
+
+  if (roleCache?.userId === session.user.id && roleCache.expiresAt > Date.now()) {
+    return roleCache.role;
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role, active")
+    .eq("id", session.user.id)
+    .single();
+
+  if (error || !data) {
+    console.warn("[useRole] failed to fetch role from profiles", error);
+    const fallback = normalizedTokenRole || "user";
+    setCachedRole(session.user.id, fallback);
+    return fallback;
+  }
+
+  if (data.active === false) {
+    console.warn("[useRole] inactive user, signing out", session.user.id);
+    toast.error("Tu cuenta fue desactivada. Contacta al administrador.");
+    clearRoleCache();
+    await supabase.auth.signOut();
+    try {
+      sessionStorage.setItem("auth_disabled", "1");
+    } catch {}
+    if (typeof window !== "undefined") {
+      window.location.href = "/login?disabled=1";
+    }
+    return "user";
+  }
+
+  const normalizedDbRole = normalizeRole(data.role);
+  if (!normalizedDbRole) {
+    console.warn("[useRole] invalid role value", data.role);
+  }
+
+  const resolvedRole = normalizedDbRole || normalizedTokenRole || "user";
+  setCachedRole(session.user.id, resolvedRole);
+  return resolvedRole;
+}
+
+function loadRoleOnce() {
+  if (!roleLoadPromise) {
+    roleLoadPromise = resolveRole().finally(() => {
+      roleLoadPromise = null;
+    });
+  }
+  return roleLoadPromise;
+}
+
 export function useRole() {
-  const [role, setRole] = useState<UserRole>("user");
-  const [loading, setLoading] = useState(true);
+  const cachedRole = getCachedRole();
+  const [role, setRole] = useState<UserRole>(cachedRole || "user");
+  const [loading, setLoading] = useState(!cachedRole);
 
   useEffect(() => {
     let active = true;
 
     const loadRole = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (!session?.user?.id) {
-          if (active) {
-            setRole("user");
-            setLoading(false);
-          }
-          return;
-        }
-
-        // 1) Preferimos claims del JWT (no depende de RLS)
-        const token = session.access_token;
-        const claims = token ? decodeJwtPayload<TokenClaims>(token) : null;
-        const roleFromToken =
-          claims?.role ??
-          claims?.user_role ??
-          claims?.app_metadata?.role ??
-          claims?.app_metadata?.user_role;
-
-        const activeFromToken =
-          claims?.active ??
-          claims?.user_active ??
-          claims?.app_metadata?.active ??
-          claims?.app_metadata?.user_active;
-
-        if (activeFromToken === false) {
-          console.warn("[useRole] inactive user (JWT claim), signing out", session.user.id);
-          toast.error("Tu cuenta fue desactivada. Contacta al administrador.");
-          await supabase.auth.signOut();
-          try {
-            sessionStorage.setItem("auth_disabled", "1");
-          } catch {}
-          if (typeof window !== "undefined") {
-            window.location.href = "/login?disabled=1";
-          }
-          return;
-        }
-
-        const normalizedTokenRole = normalizeRole(roleFromToken);
-        if (normalizedTokenRole && normalizedTokenRole !== "user") {
-          if (active) setRole(normalizedTokenRole);
-          // Si el token ya trae privilegios, no hace falta pegarle a la DB.
-          return;
-        }
-
-        const userId = session.user.id;
-
-        // 2) Fallback a DB (por si el hook de claims todavía no está activo)
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("role, active")
-          .eq("id", userId)
-          .single();
-
-        if (error || !data) {
-          console.warn("[useRole] failed to fetch role from profiles", error);
-          if (active) setRole(normalizedTokenRole || "user");
-          return;
-        }
-
-        if (data.active === false) {
-          console.warn("[useRole] inactive user, signing out", userId);
-          toast.error("Tu cuenta fue desactivada. Contacta al administrador.");
-          await supabase.auth.signOut();
-          try { sessionStorage.setItem("auth_disabled", "1"); } catch {}
-          if (typeof window !== "undefined") {
-            window.location.href = "/login?disabled=1";
-          }
-          return;
-        }
-
-        const normalizedDbRole = normalizeRole(data.role);
-        if (normalizedDbRole) {
-          if (active) setRole(normalizedDbRole);
-        } else {
-          console.warn("[useRole] invalid role value", data.role);
-          if (active) setRole(normalizedTokenRole || "user");
-        }
+        const resolvedRole = await loadRoleOnce();
+        if (active) setRole(resolvedRole);
       } catch (err) {
         console.error("[useRole] unexpected error:", err);
         if (active) setRole("user");

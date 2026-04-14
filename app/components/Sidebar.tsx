@@ -5,8 +5,9 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { useRole } from "../hooks/useRole";
+import { clearRoleCache, useRole } from "../hooks/useRole";
 import { useTenantPlan } from "../hooks/useTenantPlan";
 import { useTranslation } from "../i18n";
 import LanguageSelector from "./LanguageSelector";
@@ -22,72 +23,110 @@ type UserInfo = {
   last_name?: string | null;
 };
 
+type UserInfoCache = {
+  userId: string;
+  user: UserInfo;
+  expiresAt: number;
+};
+
 const SESSION_STARTED_AT_KEY = "padelx.sessionStartedAt";
 const SESSION_LAST_ACTIVITY_AT_KEY = "padelx.sessionLastActivityAt";
 const SESSION_USER_ID_KEY = "padelx.sessionUserId";
 const ROLE_CACHE_KEY = "padelx:role-cache:v1";
+const USER_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let userInfoCache: UserInfoCache | null = null;
 
 export default function Sidebar({ onLinkClick }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { role, isAdmin, isManager } = useRole();
-  const { hasFeature, loading: planLoading } = useTenantPlan();
+  const { hasFeature } = useTenantPlan();
   const { t } = useTranslation();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+
+    const getSessionUserInfo = (session: Session): UserInfo => {
+      const metadata = session.user.user_metadata as {
+        first_name?: string | null;
+        last_name?: string | null;
+      };
+
+      return {
+        email: session.user.email ?? null,
+        first_name: metadata.first_name ?? null,
+        last_name: metadata.last_name ?? null,
+      };
+    };
+
+    const applySessionUser = async (session: Session | null) => {
+      if (!session?.user) {
+        if (!mounted) return;
+        setUser(null);
+        setAuthChecked(true);
+        return;
+      }
+
+      const fallbackUser = getSessionUserInfo(session);
+      const cachedUser =
+        userInfoCache?.userId === session.user.id && userInfoCache.expiresAt > Date.now()
+          ? userInfoCache.user
+          : null;
+
+      if (mounted) {
+        setUser(cachedUser || fallbackUser);
+        setAuthChecked(true);
+      }
+
+      if (cachedUser) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("first_name,last_name")
+        .eq("id", session.user.id)
+        .single();
+
+      const nextUser = {
+        email: session.user.email ?? null,
+        first_name: profile?.first_name ?? fallbackUser.first_name,
+        last_name: profile?.last_name ?? fallbackUser.last_name,
+      };
+
+      userInfoCache = {
+        userId: session.user.id,
+        user: nextUser,
+        expiresAt: Date.now() + USER_INFO_CACHE_TTL_MS,
+      };
+
+      if (mounted) {
+        setUser(nextUser);
+      }
+    };
+
     const checkUser = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("first_name,last_name")
-          .eq("id", session.user.id)
-          .single();
-
-        setUser({
-          email: session.user.email ?? null,
-          first_name: profile?.first_name ?? null,
-          last_name: profile?.last_name ?? null,
-        });
-      } else {
-        setUser(null);
-      }
-      setAuthChecked(true);
+      await applySessionUser(session);
     };
 
-    checkUser();
+    void checkUser();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session?.user) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("first_name,last_name")
-            .eq("id", session.user.id)
-            .single();
-
-          setUser({
-            email: session.user.email ?? null,
-            first_name: profile?.first_name ?? null,
-            last_name: profile?.last_name ?? null,
-          });
-        } else {
-          setUser(null);
-        }
-        setAuthChecked(true);
+      (_event, session) => {
+        void applySessionUser(session);
       }
     );
 
     return () => {
+      mounted = false;
       authListener?.subscription.unsubscribe();
     };
-  }, [router]);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -110,6 +149,8 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
           window.sessionStorage.removeItem("unauthorized_redirect");
         } catch {}
       }
+      clearRoleCache();
+      userInfoCache = null;
       setUser(null);
       router.push("/login");
     }
@@ -161,12 +202,6 @@ export default function Sidebar({ onLinkClick }: SidebarProps) {
       return namePart.slice(0, 2).toUpperCase();
     }
     return "US";
-  };
-
-  const getDisplayName = (u: UserInfo | null) => {
-    if (!u) return "";
-    const full = [u.first_name, u.last_name].filter(Boolean).join(" ");
-    return full || u.email || "";
   };
 
   const getRoleBadge = () => {

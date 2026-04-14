@@ -1,10 +1,25 @@
 "use client";
 
 import { useRef, useState } from 'react';
-import html2canvas from 'html2canvas';
+
+type ShareModalMatch = {
+  id: string | number;
+  tournaments?: {
+    name?: string | null;
+  } | null;
+  round_name?: string | null;
+  winner?: "A" | "B" | string | null;
+  player_1_a?: string | null;
+  player_1_b?: string | null;
+  player_2_a?: string | null;
+  player_2_b?: string | null;
+  score_set1?: string | null;
+  score_set2?: string | null;
+  score_set3?: string | null;
+};
 
 interface ShareModalProps {
-  match: any;
+  match: ShareModalMatch;
   onClose: () => void;
 }
 
@@ -17,6 +32,7 @@ export default function ShareModal({ match, onClose }: ShareModalProps) {
     setLoading(true);
     
     try {
+      const html2canvas = (await import('html2canvas')).default;
       // Convertir el HTML a Imagen
       const canvas = await html2canvas(cardRef.current, {
         scale: 2, // Doble resolución para que se vea nítido en Retina/Móvil

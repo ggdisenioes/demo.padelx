@@ -3,28 +3,29 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import Sidebar from "./Sidebar";
 import LanguageSelector from "./LanguageSelector";
 import { Toaster } from "react-hot-toast";
 import toast from "react-hot-toast";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useTranslation } from "../i18n";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SESSION_MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const SESSION_INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 const ACTIVITY_WRITE_THROTTLE_MS = 30 * 1000; // 30 seconds
 const SESSION_STARTED_AT_KEY = "padelx.sessionStartedAt";
 const SESSION_LAST_ACTIVITY_AT_KEY = "padelx.sessionLastActivityAt";
 const SESSION_USER_ID_KEY = "padelx.sessionUserId";
-
-function getSupabaseClient() {
-  // Importante: NO crear el cliente si faltan envs.
-  // Esto evita que falle el prerender/build (por ejemplo en /_not-found).
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-}
+const PREFETCH_ROUTES = [
+  "/",
+  "/matches",
+  "/ranking",
+  "/tournaments",
+  "/players",
+  "/news",
+  "/mi-cuenta",
+];
 
 function buildCleanUrl(pathname: string, params: URLSearchParams) {
   const qs = params.toString();
@@ -57,32 +58,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname === "/forgot-password" ||
     pathname === "/reset-password";
 
-  const supabaseRef = useRef<SupabaseClient | null>(null);
   const lastActivityWriteRef = useRef(0);
 
   // Evita duplicar toasts en re-renders
   const lastToastKeyRef = useRef<string>("");
 
   useEffect(() => {
-    setMobileOpen(false);
+    const timeoutId = window.setTimeout(() => setMobileOpen(false), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [pathname]);
 
   // 1) Session guard
   useEffect(() => {
     if (isAuthPage) {
       sessionStorage.removeItem("unauthorized_redirect");
-      setCheckingSession(false);
+      queueMicrotask(() => setCheckingSession(false));
       return;
     }
 
     const checkSession = async () => {
-      if (!supabaseRef.current) {
-        supabaseRef.current = getSupabaseClient();
-      }
-
       // Si falta configuración de Supabase, no rompemos el build ni el runtime.
       // Redirigimos al login para evitar pantallas en blanco.
-      if (!supabaseRef.current) {
+      if (!isSupabaseConfigured) {
         setCheckingSession(false);
         router.replace("/login?error=config_supabase");
         return;
@@ -90,14 +87,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       const {
         data: { session },
-      } = await supabaseRef.current.auth.getSession();
+      } = await supabase.auth.getSession();
 
       if (!session) {
         // Retry corto para evitar falsos negativos de sesión en mobile.
         await new Promise((resolve) => setTimeout(resolve, 150));
         const {
           data: { session: retriedSession },
-        } = await supabaseRef.current.auth.getSession();
+        } = await supabase.auth.getSession();
 
         if (!retriedSession) {
           router.replace("/login");
@@ -140,14 +137,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     const checkTimeout = async () => {
       if (!active) return;
-      if (!supabaseRef.current) {
-        supabaseRef.current = getSupabaseClient();
-      }
-      if (!supabaseRef.current) return;
+      if (!isSupabaseConfigured) return;
 
       const {
         data: { session },
-      } = await supabaseRef.current.auth.getSession();
+      } = await supabase.auth.getSession();
       if (!session?.user?.id) return;
 
       const now = Date.now();
@@ -168,7 +162,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (!maxAgeExceeded && !inactivityExceeded) return;
 
       removeSessionTimestamps();
-      await supabaseRef.current.auth.signOut();
+      await supabase.auth.signOut();
       if (active) {
         router.replace("/login?error=session_expired");
       }
@@ -191,8 +185,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       void checkTimeout();
     }, 60_000);
 
-    if (supabaseRef.current) {
-      void supabaseRef.current.auth.getSession().then(({ data }) => {
+    if (isSupabaseConfigured) {
+      void supabase.auth.getSession().then(({ data }) => {
         const userId = data.session?.user?.id;
         if (userId) {
           const storedUserId = window.localStorage.getItem(SESSION_USER_ID_KEY);
@@ -206,7 +200,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } =
-      supabaseRef.current?.auth.onAuthStateChange((event, session) => {
+      isSupabaseConfigured
+        ? supabase.auth.onAuthStateChange((event, session) => {
         if (event === "SIGNED_OUT") {
           removeSessionTimestamps();
           return;
@@ -214,7 +209,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         if (event === "SIGNED_IN" && session?.user?.id) {
           writeSessionTimestamps(session.user.id);
         }
-      }) || { data: { subscription: null } };
+        })
+        : { data: { subscription: null } };
 
     void checkTimeout();
 
@@ -229,15 +225,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [isAuthPage, router]);
 
+  useEffect(() => {
+    if (checkingSession || isAuthPage || typeof window === "undefined") return;
+
+    const prefetch = () => {
+      for (const route of PREFETCH_ROUTES) {
+        if (route !== pathname) {
+          router.prefetch(route);
+        }
+      }
+    };
+
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(prefetch, { timeout: 1500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timeoutId = window.setTimeout(prefetch, 600);
+    return () => window.clearTimeout(timeoutId);
+  }, [checkingSession, isAuthPage, pathname, router]);
+
   // 3) Sidebar slide-in transition after login
   useEffect(() => {
-    if (!checkingSession && !isAuthPage) {
-      // Small delay to trigger CSS transition
-      const timer = setTimeout(() => setSidebarVisible(true), 50);
-      return () => clearTimeout(timer);
-    } else {
-      setSidebarVisible(false);
-    }
+    const shouldShowSidebar = !checkingSession && !isAuthPage;
+    const timer = setTimeout(() => setSidebarVisible(shouldShowSidebar), shouldShowSidebar ? 50 : 0);
+    return () => clearTimeout(timer);
   }, [checkingSession, isAuthPage]);
 
   // 4) Mejora PRO: toast + limpieza de URL para errores "soft"
@@ -267,9 +279,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     // No rompemos navegación, no recargamos todo
     router.replace(cleanUrl);
-  }, [pathname, searchParams, router]);
+  }, [pathname, searchParams, router, t]);
 
-  if (checkingSession) return null;
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-[#05070b] text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 rounded-full border-2 border-white/20 border-t-[#ccff00] animate-spin" />
+          <p className="text-xs font-bold uppercase tracking-[0.35em] text-white/60">
+            Cargando DEMO
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Auth pages: render clean, no sidebar
   if (isAuthPage) {
@@ -305,9 +328,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="text-center">
-              <img
+              <Image
                 src="/logo.svg"
                 alt="PADELX DEMO"
+                width={126}
+                height={42}
+                priority
                 className="h-7 w-auto mx-auto object-contain"
               />
             </div>
