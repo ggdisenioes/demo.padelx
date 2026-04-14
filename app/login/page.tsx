@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "../i18n";
 
 const REMEMBERED_EMAIL_KEY = "padelx.rememberedEmail";
-const STRICT_TENANT_SLUGS = new Set(["twinco"]);
+const STRICT_TENANT_SLUGS = new Set(["demo"]);
 const LOGIN_REQUEST_TIMEOUT_MS = 15000;
 
 function getBaseDomain(hostname: string) {
@@ -223,9 +223,10 @@ export default function LoginPage() {
         validateProfileAndRedirect(data.user.id, t("auth.userDisabled")),
         LOGIN_REQUEST_TIMEOUT_MS
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[login] timeout/error:", error);
-      if (String(error?.message || "").includes("timeout")) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("timeout")) {
         try {
           await supabase.auth.signOut({ scope: "local" });
         } catch {}

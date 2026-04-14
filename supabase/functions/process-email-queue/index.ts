@@ -17,7 +17,7 @@ interface EmailQueueItem {
   template_type: string;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async () => {
   try {
     // Get pending emails from queue
     const { data: emails, error: fetchError } = await supabase
@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
       try {
         // Send via Resend
         const response = await resend.emails.send({
-          from: "TWINCO Pádel <noreply@twincopadelx.com>",
+          from: "DEMO Pádel <noreply@padelx.es>",
           to: email.recipient_email,
           subject: email.subject,
           html: email.body_html,

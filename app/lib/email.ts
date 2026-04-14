@@ -1,5 +1,5 @@
 const FROM_EMAIL = process.env.EMAIL_FROM || "PadelX <noreply@padelx.es>";
-const DEFAULT_APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://twinco.padelx.es";
+const DEFAULT_APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://new.padelx.es";
 const RESEND_API_URL = "https://api.resend.com/emails";
 const RESEND_MAX_RETRIES = Number(process.env.RESEND_MAX_RETRIES || "3");
 const RESEND_MIN_REQUEST_INTERVAL_MS = Number(
@@ -192,14 +192,14 @@ function baseLayout(title: string, bodyHtml: string) {
   <div class="wrap">
     <div class="card">
       <div class="header">
-        <div class="brand">TWINCO</div>
+        <div class="brand">DEMO</div>
         <div class="sub">PÁDEL MANAGER</div>
       </div>
       <div class="content">
         ${bodyHtml}
       </div>
       <div class="footer">
-        Este email fue enviado automáticamente por TWINCO Pádel Manager.
+        Este email fue enviado automáticamente por DEMO Pádel Manager.
       </div>
     </div>
   </div>
@@ -487,7 +487,7 @@ export async function sendChallengeNotification(opts: {
     challengedPartnerName,
     challengedPartnerEmail,
     message,
-    clubName = "TWINCO",
+    clubName = "DEMO",
   } = opts;
 
   const safeChallenger = esc(challengerName);
@@ -589,7 +589,7 @@ export async function sendMatchNotification(opts: {
     teamB,
     matchDate,
     court,
-    clubName = "TWINCO",
+    clubName = "DEMO",
     tenantSlug,
   } = opts;
 
@@ -641,7 +641,7 @@ export async function sendMatchReminderNotification(opts: {
     teamB,
     matchDate,
     court,
-    clubName = "TWINCO",
+    clubName = "DEMO",
     tenantSlug,
   } = opts;
 
@@ -697,7 +697,7 @@ export async function sendMatchFinishedNotification(opts: {
     matchDate,
     court,
     roundName,
-    clubName = "TWINCO",
+    clubName = "DEMO",
     tenantSlug,
   } = opts;
 
@@ -747,7 +747,7 @@ export async function sendMatchProposalNotification(opts: {
   court?: string;
   clubName?: string;
 }) {
-  const { adminEmails, teamA, teamB, matchDate, court, clubName = "TWINCO" } = opts;
+  const { adminEmails, teamA, teamB, matchDate, court, clubName = "DEMO" } = opts;
 
   const safeClub = esc(clubName);
   const safeTeamA = esc(teamA);

@@ -23,7 +23,7 @@
   - `vercel inspect <deployment-url>`
 
 ## 4. Post-release smoke checks
-- `npm run go-live:smoke` (defaults to `https://twinco.padelx.es`)
+- `npm run go-live:smoke` (defaults to `https://new.padelx.es`)
 - Manual spot-check:
   - Login with admin account.
   - Open dashboard, matches, ranking, admin notifications.

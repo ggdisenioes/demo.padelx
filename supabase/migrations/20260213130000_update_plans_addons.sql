@@ -1,5 +1,5 @@
 -- ============================================================
--- MIGRACIÓN: Actualizar planes, add-ons y asignar Twinco
+-- MIGRACIÓN: Actualizar planes, add-ons y asignar DEMO
 -- ============================================================
 
 -- ============================================================
@@ -103,19 +103,19 @@ ON CONFLICT (slug) DO UPDATE SET
   sort_order = EXCLUDED.sort_order;
 
 -- ============================================================
--- 7. Asignar a Twinco: plan Club+ y todos los add-ons
+-- 7. Asignar a DEMO: plan Club+ y todos los add-ons
 -- ============================================================
 DO $$
 DECLARE
-  v_twinco_id UUID;
+  v_demo_id UUID;
   v_club_plus_id UUID;
   v_addon RECORD;
 BEGIN
-  -- Obtener Twinco tenant
-  SELECT id INTO v_twinco_id FROM tenants WHERE slug = 'twinco' LIMIT 1;
+  -- Obtener tenant DEMO
+  SELECT id INTO v_demo_id FROM tenants WHERE slug = 'demo' LIMIT 1;
 
-  IF v_twinco_id IS NULL THEN
-    RAISE NOTICE 'Tenant Twinco no encontrado, saltando asignación';
+  IF v_demo_id IS NULL THEN
+    RAISE NOTICE 'Tenant DEMO no encontrado, saltando asignación';
     RETURN;
   END IF;
 
@@ -127,19 +127,19 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Asignar plan Club+ a Twinco
+  -- Asignar plan Club+ a DEMO
   UPDATE tenants SET
     subscription_plan_id = v_club_plus_id,
     status = 'active'
-  WHERE id = v_twinco_id;
+  WHERE id = v_demo_id;
 
-  -- Asignar todos los add-ons activos a Twinco
+  -- Asignar todos los add-ons activos a DEMO
   FOR v_addon IN SELECT id FROM addons WHERE is_active = TRUE
   LOOP
     INSERT INTO tenant_addons (tenant_id, addon_id)
-    VALUES (v_twinco_id, v_addon.id)
+    VALUES (v_demo_id, v_addon.id)
     ON CONFLICT (tenant_id, addon_id) DO NOTHING;
   END LOOP;
 
-  RAISE NOTICE 'Twinco actualizado con Club+ y todos los add-ons';
+  RAISE NOTICE 'DEMO actualizado con Club+ y todos los add-ons';
 END $$;

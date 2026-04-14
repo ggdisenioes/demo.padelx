@@ -48,7 +48,7 @@ function getOrigin(req: Request): string {
     .split(",")[0]
     .trim();
 
-  if (!host) return "https://twinco.padelx.es";
+  if (!host) return "https://new.padelx.es";
   return `${proto}://${host}`;
 }
 

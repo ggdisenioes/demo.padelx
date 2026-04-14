@@ -24,11 +24,17 @@ export default function MatchShareCard({ winnerTeam, loserTeam, score }: Props) 
       }}
     >
       <div style={{ textAlign: "center" }}>
-        <img
-          src="/logo.svg"
-          alt="DEMO Padel Manager"
-          style={{ height: 32, width: "auto", objectFit: "contain" }}
-        />
+        <div
+          style={{
+            color: "#ffffff",
+            fontSize: 32,
+            fontWeight: 900,
+            letterSpacing: 4,
+            lineHeight: 1,
+          }}
+        >
+          DEMO
+        </div>
         <div
           style={{
             marginTop: 8,

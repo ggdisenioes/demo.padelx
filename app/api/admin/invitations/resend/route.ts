@@ -49,7 +49,7 @@ function getOrigin(req: Request): string {
     .split(",")[0]
     .trim();
 
-  if (!host) return "https://twinco.padelx.es";
+  if (!host) return "https://new.padelx.es";
   return `${proto}://${host}`;
 }
 
@@ -230,10 +230,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     const tenantName = String(tenantData?.name || "").trim();
-    const host = getHost(req);
-    const isTwincoTenant =
-      host.includes("twinco.padelx.es") || tenantName.toLowerCase() === "twinco";
-    const clubName = isTwincoTenant ? "Twinco Padel Manager" : tenantName || "PadelX";
+    const clubName = tenantName || "DEMO";
 
     const invitedName = [target.first_name, target.last_name].filter(Boolean).join(" ").trim();
 

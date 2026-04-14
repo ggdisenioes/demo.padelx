@@ -2,7 +2,7 @@
 ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS admin_email TEXT;
 ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS phone TEXT;
 
--- Setear email admin de Twinco
+-- Setear email admin de DEMO
 UPDATE public.tenants
 SET admin_email = 'ggdisenioes@gmail.com'
-WHERE slug = 'twinco';
+WHERE slug = 'demo';
