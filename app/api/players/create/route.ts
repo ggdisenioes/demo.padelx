@@ -119,7 +119,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    await adminClient
+    // El query builder de Supabase es "thenable" pero no es Promise nativa:
+    // no tiene .catch(). Encadenarlo tiraba "insert(...).catch is not a
+    // function" DESPUÉS de guardar el jugador, y caía al catch general
+    // devolviendo 500 aunque el alta sí había funcionado. El log es
+    // best-effort: await + ignorar el error.
+    const { error: logError } = await adminClient
       .from("action_logs")
       .insert({
         user_id: user.id,
@@ -129,8 +134,10 @@ export async function POST(request: NextRequest) {
         entity_id: createdPlayer?.id,
         tenant_id: profile.tenant_id,
         metadata: { playerName: name, source: "admin_create_player" },
-      })
-      .catch(() => {});
+      });
+    if (logError) {
+      console.warn("[players/create] action log warning", logError);
+    }
 
     return NextResponse.json({ success: true, id: createdPlayer?.id });
   } catch (error) {
